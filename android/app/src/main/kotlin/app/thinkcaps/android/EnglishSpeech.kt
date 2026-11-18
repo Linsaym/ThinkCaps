@@ -43,6 +43,7 @@ internal class EnglishSpeech(private val context: Context) {
             close()
             return
         }
+        tts.setSpeechRate(0.75f)
         ready = true
         play()
     }

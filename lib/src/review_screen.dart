@@ -51,7 +51,6 @@ class _ReviewScreenState extends State<ReviewScreen>
 
   void _reveal() {
     if (_submitting || _flip.value > 0) return;
-    _stopSpeech();
     HapticFeedback.selectionClick();
     if (MediaQuery.disableAnimationsOf(context)) {
       _flip.value = 1;
@@ -373,10 +372,13 @@ class _CardFace extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final code = back ? card.direction.answerCode : card.direction.promptCode;
+    final direction = card.direction;
+    final code = back
+        ? '${direction.promptCode} · ${direction.answerCode}'
+        : direction.promptCode;
     final content = back ? card.answer : card.prompt;
-    final fontSize = content.length > 28 ? 31.0 : 44.0;
-    final termStyle = heading.copyWith(fontSize: fontSize);
+    final showCredit =
+        card.entry.automatic && (back || direction.promptCode == 'RU');
     return Panel(
       padding: const EdgeInsets.all(22),
       radius: 27,
@@ -413,41 +415,35 @@ class _CardFace extends StatelessWidget {
                 primary: false,
                 child: Column(
                   children: [
-                    Semantics(
-                      label: content,
-                      excludeSemantics: true,
-                      child: Wrap(
-                        alignment: WrapAlignment.center,
-                        spacing:
-                            MediaQuery.textScalerOf(context).scale(fontSize) *
-                            .2,
-                        children: [
-                          for (final word in content.split(_wordSeparator))
-                            FittedBox(
-                              fit: BoxFit.scaleDown,
-                              child: Text(
-                                word,
-                                softWrap: false,
-                                maxLines: 1,
-                                style: termStyle,
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                    if (code == 'EN')
-                      IconButton(
-                        tooltip: 'Озвучить английское слово',
-                        onPressed: onSpeak,
-                        color: mint,
-                        disabledColor: muted,
-                        icon: Icon(
-                          speaking
-                              ? Icons.volume_up_rounded
-                              : Icons.volume_up_outlined,
-                          size: 22,
+                    if (back) ...[
+                      _term(
+                        context,
+                        card.prompt,
+                        subheading.copyWith(
+                          fontSize: 23,
+                          color: muted,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
+                      const SizedBox(height: 10),
+                    ],
+                    _term(
+                      context,
+                      content,
+                      heading.copyWith(fontSize: content.length > 28 ? 31 : 44),
+                    ),
+                    IconButton(
+                      tooltip: 'Озвучить английское слово',
+                      onPressed: onSpeak,
+                      color: mint,
+                      disabledColor: muted,
+                      icon: Icon(
+                        speaking
+                            ? Icons.volume_up_rounded
+                            : Icons.volume_up_outlined,
+                        size: 22,
+                      ),
+                    ),
                     if (back && card.entry.context.isNotEmpty) ...[
                       const SizedBox(height: 15),
                       Text(
@@ -463,12 +459,26 @@ class _CardFace extends StatelessWidget {
           ),
           SizedBox(
             height: 18,
-            child: code == 'RU' && card.entry.automatic
-                ? const Center(child: TranslationCredit())
-                : null,
+            child: showCredit ? const Center(child: TranslationCredit()) : null,
           ),
         ],
       ),
     );
   }
+
+  Widget _term(BuildContext context, String term, TextStyle style) => Semantics(
+    label: term,
+    excludeSemantics: true,
+    child: Wrap(
+      alignment: WrapAlignment.center,
+      spacing: MediaQuery.textScalerOf(context).scale(style.fontSize!) * .2,
+      children: [
+        for (final word in term.split(_wordSeparator))
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(word, softWrap: false, maxLines: 1, style: style),
+          ),
+      ],
+    ),
+  );
 }

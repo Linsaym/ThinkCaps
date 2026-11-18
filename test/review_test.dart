@@ -5,7 +5,9 @@ import 'package:thinkcaps/src/lexicon.dart';
 import 'package:thinkcaps/src/review_screen.dart';
 
 void main() {
-  testWidgets('each revealed card accepts a rating by swipe', (tester) async {
+  testWidgets('cards reveal both terms, speak English and accept swipes', (
+    tester,
+  ) async {
     final fresh = ReviewState(due: DateTime.utc(2026, 11, 18));
     final entry = Entry(
       id: 1,
@@ -42,8 +44,11 @@ void main() {
     await tester.tap(find.text('Показать перевод'));
     await tester.pumpAndSettle();
     expect(find.text('любопытство'), findsOneWidget);
+    expect(find.text('curiosity'), findsOneWidget);
     expect(find.text(entry.context), findsOneWidget);
-    expect(speakButton, findsNothing);
+    await tester.tap(speakButton);
+    await tester.pumpAndSettle();
+    expect(spoken, hasLength(2));
     expect(find.byType(FilledButton), findsNothing);
     expect(find.byType(OutlinedButton), findsNothing);
     expect(find.textContaining('через'), findsNothing);
@@ -53,12 +58,17 @@ void main() {
     expect(find.text('RU → EN'), findsOneWidget);
     expect(find.text('любопытство'), findsOneWidget);
     expect(find.text('curiosity'), findsNothing);
-    expect(speakButton, findsNothing);
-    await tester.tap(find.text('Показать перевод'));
-    await tester.pumpAndSettle();
     await tester.tap(speakButton);
     await tester.pumpAndSettle();
-    expect(spoken, ['curiosity', 'curiosity']);
+    expect(spoken, hasLength(3));
+    expect(find.text('curiosity'), findsNothing);
+    await tester.tap(find.text('Показать перевод'));
+    await tester.pumpAndSettle();
+    expect(find.text('любопытство'), findsOneWidget);
+    expect(find.text('curiosity'), findsOneWidget);
+    await tester.tap(speakButton);
+    await tester.pumpAndSettle();
+    expect(spoken, List.filled(4, 'curiosity'));
     await tester.fling(find.text('curiosity'), const Offset(-280, 0), 950);
     await tester.pumpAndSettle();
     expect(ratings, [
@@ -116,6 +126,7 @@ void main() {
     await tester.tap(find.text('Показать перевод'));
     await tester.pumpAndSettle();
     expectFittedWord(longRussian);
+    expectFittedWord(longEnglish);
     expect(tester.takeException(), isNull);
   });
 }
