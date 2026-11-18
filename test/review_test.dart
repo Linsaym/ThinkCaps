@@ -20,7 +20,8 @@ void main() {
     );
     final ratings = <(Direction, Grade)>[];
     final spoken = <String>[];
-    final speakButton = find.byTooltip('Озвучить английское слово');
+    final englishTerm = find.text('curiosity');
+    final russianTerm = find.text('любопытство');
     await tester.pumpWidget(
       MaterialApp(
         theme: appTheme(),
@@ -34,19 +35,21 @@ void main() {
     );
     expect(find.text('curiosity'), findsOneWidget);
     expect(find.text('любопытство'), findsNothing);
-    await tester.tap(speakButton);
+    expect(find.byIcon(Icons.volume_up_outlined), findsNothing);
+    expect(find.byIcon(Icons.volume_up_rounded), findsNothing);
+    await tester.tap(englishTerm);
     await tester.pumpAndSettle();
     expect(spoken, ['curiosity']);
     expect(find.text('любопытство'), findsNothing);
     await tester.fling(find.text('curiosity'), const Offset(280, 0), 650);
     await tester.pumpAndSettle();
     expect(ratings, isEmpty);
-    await tester.tap(find.text('Показать перевод'));
+    await tester.tapAt(tester.getCenter(englishTerm) + const Offset(0, -105));
     await tester.pumpAndSettle();
     expect(find.text('любопытство'), findsOneWidget);
     expect(find.text('curiosity'), findsOneWidget);
     expect(find.text(entry.context), findsOneWidget);
-    await tester.tap(speakButton);
+    await tester.tap(russianTerm);
     await tester.pumpAndSettle();
     expect(spoken, hasLength(2));
     expect(find.byType(FilledButton), findsNothing);
@@ -58,7 +61,7 @@ void main() {
     expect(find.text('RU → EN'), findsOneWidget);
     expect(find.text('любопытство'), findsOneWidget);
     expect(find.text('curiosity'), findsNothing);
-    await tester.tap(speakButton);
+    await tester.tap(russianTerm);
     await tester.pumpAndSettle();
     expect(spoken, hasLength(3));
     expect(find.text('curiosity'), findsNothing);
@@ -66,7 +69,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('любопытство'), findsOneWidget);
     expect(find.text('curiosity'), findsOneWidget);
-    await tester.tap(speakButton);
+    await tester.tap(englishTerm);
     await tester.pumpAndSettle();
     expect(spoken, List.filled(4, 'curiosity'));
     await tester.fling(find.text('curiosity'), const Offset(-280, 0), 950);

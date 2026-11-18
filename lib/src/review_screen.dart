@@ -61,7 +61,7 @@ class _ReviewScreenState extends State<ReviewScreen>
 
   Future<void> _speak(String word) async {
     if (_speaking || _submitting || _flip.isAnimating) return;
-    setState(() => _speaking = true);
+    _speaking = true;
     try {
       await widget.onSpeak(word).timeout(const Duration(seconds: 15));
     } on PlatformException catch (error) {
@@ -78,7 +78,7 @@ class _ReviewScreenState extends State<ReviewScreen>
         notifyUser(context, 'Озвучка не запустилась. Попробуйте ещё раз.');
       }
     } finally {
-      if (mounted) setState(() => _speaking = false);
+      _speaking = false;
     }
   }
 
@@ -318,11 +318,7 @@ class _ReviewScreenState extends State<ReviewScreen>
                             child: _CardFace(
                               card: card,
                               back: back,
-                              speaking: _speaking,
-                              onSpeak:
-                                  _speaking || _submitting || _flip.isAnimating
-                                  ? null
-                                  : () => _speak(card.entry.english),
+                              onSpeak: () => _speak(card.entry.english),
                               highlight: (offset / width).abs().clamp(0.0, .5),
                               positive: offset > 0,
                             ),
@@ -358,15 +354,13 @@ class _CardFace extends StatelessWidget {
   const _CardFace({
     required this.card,
     required this.back,
-    required this.speaking,
     required this.onSpeak,
     required this.highlight,
     required this.positive,
   });
   final ReviewCard card;
   final bool back;
-  final bool speaking;
-  final VoidCallback? onSpeak;
+  final VoidCallback onSpeak;
   final double highlight;
   final bool positive;
 
@@ -432,18 +426,6 @@ class _CardFace extends StatelessWidget {
                       content,
                       heading.copyWith(fontSize: content.length > 28 ? 31 : 44),
                     ),
-                    IconButton(
-                      tooltip: 'Озвучить английское слово',
-                      onPressed: onSpeak,
-                      color: mint,
-                      disabledColor: muted,
-                      icon: Icon(
-                        speaking
-                            ? Icons.volume_up_rounded
-                            : Icons.volume_up_outlined,
-                        size: 22,
-                      ),
-                    ),
                     if (back && card.entry.context.isNotEmpty) ...[
                       const SizedBox(height: 15),
                       Text(
@@ -468,17 +450,40 @@ class _CardFace extends StatelessWidget {
 
   Widget _term(BuildContext context, String term, TextStyle style) => Semantics(
     label: term,
+    hint: 'Озвучить английское слово',
+    button: true,
+    onTap: onSpeak,
     excludeSemantics: true,
-    child: Wrap(
-      alignment: WrapAlignment.center,
-      spacing: MediaQuery.textScalerOf(context).scale(style.fontSize!) * .2,
-      children: [
-        for (final word in term.split(_wordSeparator))
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Text(word, softWrap: false, maxLines: 1, style: style),
+    child: Material(
+      type: MaterialType.transparency,
+      child: InkWell(
+        onTap: onSpeak,
+        borderRadius: BorderRadius.circular(10),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+          child: Center(
+            widthFactor: 1,
+            heightFactor: 1,
+            child: Wrap(
+              alignment: WrapAlignment.center,
+              spacing:
+                  MediaQuery.textScalerOf(context).scale(style.fontSize!) * .2,
+              children: [
+                for (final word in term.split(_wordSeparator))
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      word,
+                      softWrap: false,
+                      maxLines: 1,
+                      style: style,
+                    ),
+                  ),
+              ],
+            ),
           ),
-      ],
+        ),
+      ),
     ),
   );
 }
