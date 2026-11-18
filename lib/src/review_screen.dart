@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
+import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 import 'package:flutter/services.dart';
 
 import 'design.dart';
@@ -202,6 +203,7 @@ class _ReviewScreenState extends State<ReviewScreen>
   Widget _activeCard(ReviewCard card, double width, double height) {
     final extraCard = _index + 1 < widget.queue.length;
     final reducedMotion = MediaQuery.disableAnimationsOf(context);
+    final canRate = _revealComplete && !_submitting;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -228,102 +230,79 @@ class _ReviewScreenState extends State<ReviewScreen>
                 left: 0,
                 right: 0,
                 height: height,
-                child: GestureDetector(
-                  onTap: _reveal,
-                  onHorizontalDragStart: _submitting || !_revealComplete
-                      ? null
-                      : (_) => _slide.stop(),
-                  onHorizontalDragUpdate: _submitting || !_revealComplete
-                      ? null
-                      : (details) => _slide.value += details.delta.dx,
-                  onHorizontalDragCancel: _submitting ? null : () => _settle(0),
-                  onHorizontalDragEnd: _submitting || !_revealComplete
-                      ? null
-                      : (details) => _endDrag(details, width),
-                  child: AnimatedBuilder(
-                    animation: Listenable.merge([_flip, _slide]),
-                    builder: (context, _) {
-                      final angle =
-                          Curves.easeInOutCubic.transform(_flip.value) *
-                          math.pi;
-                      final back = angle >= math.pi / 2;
-                      final offset = _slide.value;
-                      final transform = Matrix4.identity()
-                        ..setEntry(3, 2, .0015)
-                        ..rotateZ(
-                          reducedMotion
-                              ? 0
-                              : (offset / width * .28).clamp(-.3, .3),
-                        )
-                        ..rotateY(back ? angle - math.pi : angle);
-                      return Transform.translate(
-                        offset: Offset(offset, 0),
-                        child: Transform(
-                          alignment: Alignment.center,
-                          transform: transform,
-                          child: _CardFace(
-                            card: card,
-                            back: back,
-                            highlight: (offset / width).abs().clamp(0.0, .5),
-                            positive: offset > 0,
+                child: Semantics(
+                  customSemanticsActions: canRate
+                      ? {
+                          const CustomSemanticsAction(
+                            label: 'Не вспомнил',
+                          ): () =>
+                              _rate(Grade.again, width),
+                          const CustomSemanticsAction(label: 'Вспомнил'): () =>
+                              _rate(Grade.remembered, width),
+                        }
+                      : null,
+                  child: GestureDetector(
+                    onTap: _revealComplete ? null : _reveal,
+                    onHorizontalDragStart: canRate
+                        ? (_) => _slide.stop()
+                        : null,
+                    onHorizontalDragUpdate: canRate
+                        ? (details) => _slide.value += details.delta.dx
+                        : null,
+                    onHorizontalDragCancel: canRate ? () => _settle(0) : null,
+                    onHorizontalDragEnd: canRate
+                        ? (details) => _endDrag(details, width)
+                        : null,
+                    child: AnimatedBuilder(
+                      animation: Listenable.merge([_flip, _slide]),
+                      builder: (context, _) {
+                        final angle =
+                            Curves.easeInOutCubic.transform(_flip.value) *
+                            math.pi;
+                        final back = angle >= math.pi / 2;
+                        final offset = _slide.value;
+                        final transform = Matrix4.identity()
+                          ..setEntry(3, 2, .0015)
+                          ..rotateZ(
+                            reducedMotion
+                                ? 0
+                                : (offset / width * .28).clamp(-.3, .3),
+                          )
+                          ..rotateY(back ? angle - math.pi : angle);
+                        return Transform.translate(
+                          offset: Offset(offset, 0),
+                          child: Transform(
+                            alignment: Alignment.center,
+                            transform: transform,
+                            child: _CardFace(
+                              card: card,
+                              back: back,
+                              highlight: (offset / width).abs().clamp(0.0, .5),
+                              positive: offset > 0,
+                            ),
                           ),
-                        ),
-                      );
-                    },
+                        );
+                      },
+                    ),
                   ),
                 ),
               ),
             ],
           ),
         ),
-        const SizedBox(height: 23),
-        if (!_revealComplete)
+        if (!_revealComplete) ...[
+          const SizedBox(height: 23),
           FilledButton(
             onPressed: _flip.isAnimating ? null : _reveal,
             child: const Text('Показать перевод'),
-          )
-        else
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(child: _rating(card, Grade.again, width)),
-              const SizedBox(width: 12),
-              Expanded(child: _rating(card, Grade.remembered, width)),
-            ],
           ),
-        const SizedBox(height: 12),
-        Text(
-          _revealComplete
-              ? 'Свайп влево — не вспомнил, вправо — вспомнил.'
-              : 'Вспомните перевод, затем переверните карточку.',
-          textAlign: TextAlign.center,
-          style: body.copyWith(fontSize: 12),
-        ),
-      ],
-    );
-  }
-
-  Widget _rating(ReviewCard card, Grade grade, double width) {
-    final positive = grade == Grade.remembered;
-    final name = positive ? 'Вспомнил' : 'Не вспомнил';
-    final onTap = _submitting ? null : () => _rate(grade, width);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        if (positive)
-          FilledButton(onPressed: onTap, child: Text(name))
-        else
-          OutlinedButton(
-            onPressed: onTap,
-            style: OutlinedButton.styleFrom(minimumSize: const Size(0, 54)),
-            child: Text(name),
+          const SizedBox(height: 12),
+          Text(
+            'Вспомните перевод, затем переверните карточку.',
+            textAlign: TextAlign.center,
+            style: body.copyWith(fontSize: 12),
           ),
-        const SizedBox(height: 6),
-        Text(
-          intervalLabel(card.state, grade),
-          style: body.copyWith(fontSize: 12),
-          textAlign: TextAlign.center,
-        ),
+        ],
       ],
     );
   }

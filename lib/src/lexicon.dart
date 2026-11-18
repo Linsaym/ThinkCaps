@@ -114,12 +114,6 @@ String plural(int count, String one, String few, String many) {
   };
 }
 
-String intervalLabel(ReviewState state, Grade grade) {
-  if (grade == Grade.again) return 'через 5 мин';
-  final days = state.after(grade, DateTime.utc(2000)).days;
-  return 'через $days ${plural(days, 'день', 'дня', 'дней')}';
-}
-
 String normalizeTerm(String text) =>
     text.trim().replaceAll(RegExp(r'\s+'), ' ').replaceAll('’', "'");
 

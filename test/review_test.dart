@@ -5,9 +5,7 @@ import 'package:thinkcaps/src/lexicon.dart';
 import 'package:thinkcaps/src/review_screen.dart';
 
 void main() {
-  testWidgets('both directions reveal before accepting a rating', (
-    tester,
-  ) async {
+  testWidgets('each revealed card accepts a rating by swipe', (tester) async {
     final fresh = ReviewState(due: DateTime.utc(2026, 11, 18));
     final entry = Entry(
       id: 1,
@@ -37,7 +35,11 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('любопытство'), findsOneWidget);
     expect(find.text(entry.context), findsOneWidget);
-    await tester.tap(find.text('Вспомнил'));
+    expect(find.byType(FilledButton), findsNothing);
+    expect(find.byType(OutlinedButton), findsNothing);
+    expect(find.textContaining('через'), findsNothing);
+    expect(find.textContaining('Свайп'), findsNothing);
+    await tester.fling(find.text('любопытство'), const Offset(280, 0), 950);
     await tester.pumpAndSettle();
     expect(find.text('RU → EN'), findsOneWidget);
     expect(find.text('любопытство'), findsOneWidget);
