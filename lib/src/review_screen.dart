@@ -1,0 +1,414 @@
+import 'dart:math' as math;
+
+import 'package:flutter/material.dart';
+import 'package:flutter/physics.dart';
+import 'package:flutter/services.dart';
+
+import 'design.dart';
+import 'lexicon.dart';
+
+class ReviewScreen extends StatefulWidget {
+  const ReviewScreen({super.key, required this.queue, required this.onGrade});
+  final List<ReviewCard> queue;
+  final Future<void> Function(ReviewCard, Grade) onGrade;
+
+  @override
+  State<ReviewScreen> createState() => _ReviewScreenState();
+}
+
+class _ReviewScreenState extends State<ReviewScreen>
+    with TickerProviderStateMixin {
+  late final _flip = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 410),
+  )..addStatusListener((_) => setState(() {}));
+  late final _slide = AnimationController.unbounded(vsync: this);
+  int _index = 0;
+  bool _submitting = false;
+
+  bool get _revealComplete => _flip.isCompleted;
+
+  @override
+  void dispose() {
+    _flip.dispose();
+    _slide.dispose();
+    super.dispose();
+  }
+
+  void _reveal() {
+    if (_submitting || _flip.value > 0) return;
+    HapticFeedback.selectionClick();
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _flip.value = 1;
+    } else {
+      _flip.forward();
+    }
+  }
+
+  void _settle(double velocity) {
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _slide.value = 0;
+      return;
+    }
+    _slide.animateWith(
+      SpringSimulation(
+        const SpringDescription(mass: 1, stiffness: 340, damping: 24),
+        _slide.value,
+        0,
+        velocity,
+      ),
+    );
+  }
+
+  void _endDrag(DragEndDetails details, double width) {
+    final velocity = details.primaryVelocity ?? 0;
+    final projected = _slide.value + velocity * .16;
+    if (_revealComplete && projected.abs() > width * .28) {
+      _rate(
+        projected.isNegative ? Grade.again : Grade.remembered,
+        width,
+        velocity,
+      );
+    } else {
+      _settle(velocity);
+    }
+  }
+
+  Future<void> _rate(Grade grade, double width, [double velocity = 0]) async {
+    if (_submitting || !_revealComplete) return;
+    final card = widget.queue[_index];
+    setState(() => _submitting = true);
+    HapticFeedback.lightImpact();
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    final target = grade == Grade.again ? -width * 1.4 : width * 1.4;
+    final duration =
+        (1000 * (target - _slide.value).abs() / math.max(1800, velocity.abs()))
+            .round()
+            .clamp(140, 270);
+    try {
+      await Future.wait([
+        if (!reduceMotion)
+          _slide
+              .animateTo(
+                target,
+                duration: Duration(milliseconds: duration),
+                curve: Curves.easeInCubic,
+              )
+              .orCancel,
+        widget.onGrade(card, grade),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _index++;
+        _flip.reset();
+        _slide.value = 0;
+        _submitting = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _submitting = false);
+      _settle(0);
+      notifyUser(context, 'Не удалось сохранить ответ. Попробуйте ещё раз.');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final finished = _index == widget.queue.length;
+    return PopScope(
+      canPop: !_submitting,
+      child: Scaffold(
+        body: SafeArea(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 560),
+              child: LayoutBuilder(
+                builder: (context, space) {
+                  final width = space.maxWidth - 48;
+                  return ListView(
+                    padding: const EdgeInsets.fromLTRB(24, 11, 24, 22),
+                    children: [
+                      Row(
+                        children: [
+                          IconButton.outlined(
+                            tooltip: 'Назад',
+                            onPressed: _submitting
+                                ? null
+                                : () => Navigator.pop(context),
+                            icon: const Icon(Icons.arrow_back_rounded),
+                            style: IconButton.styleFrom(
+                              side: const BorderSide(color: line),
+                              foregroundColor: text,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              'Повторение',
+                              style: subheading.copyWith(fontSize: 20),
+                            ),
+                          ),
+                          if (!finished)
+                            Text(
+                              '${_index + 1} / ${widget.queue.length}',
+                              style: label.copyWith(letterSpacing: .4),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 17),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(4),
+                        child: LinearProgressIndicator(
+                          minHeight: 4,
+                          value: _index / widget.queue.length,
+                          backgroundColor: line,
+                          valueColor: const AlwaysStoppedAnimation(mint),
+                        ),
+                      ),
+                      const SizedBox(height: 23),
+                      if (finished)
+                        _completed()
+                      else
+                        _activeCard(
+                          widget.queue[_index],
+                          width,
+                          (space.maxHeight - 245).clamp(285.0, 455.0),
+                        ),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _completed() => EmptyState(
+    icon: Icons.check_circle_outline_rounded,
+    title: 'Повторение завершено',
+    detail:
+        'Пройдено: ${widget.queue.length} ${plural(widget.queue.length, 'карточка', 'карточки', 'карточек')}. Следующие повторения появятся по расписанию.',
+    action: SizedBox(
+      width: double.infinity,
+      child: FilledButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Готово'),
+      ),
+    ),
+  );
+
+  Widget _activeCard(ReviewCard card, double width, double height) {
+    final extraCard = _index + 1 < widget.queue.length;
+    final reducedMotion = MediaQuery.disableAnimationsOf(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(
+          height: height + 7,
+          child: Stack(
+            alignment: Alignment.topCenter,
+            children: [
+              if (extraCard)
+                Positioned.fill(
+                  left: 10,
+                  right: 10,
+                  top: 12,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF14171B),
+                      border: Border.all(color: line),
+                      borderRadius: BorderRadius.circular(27),
+                    ),
+                  ),
+                ),
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                height: height,
+                child: GestureDetector(
+                  onTap: _reveal,
+                  onHorizontalDragStart: _submitting || !_revealComplete
+                      ? null
+                      : (_) => _slide.stop(),
+                  onHorizontalDragUpdate: _submitting || !_revealComplete
+                      ? null
+                      : (details) => _slide.value += details.delta.dx,
+                  onHorizontalDragCancel: _submitting ? null : () => _settle(0),
+                  onHorizontalDragEnd: _submitting || !_revealComplete
+                      ? null
+                      : (details) => _endDrag(details, width),
+                  child: AnimatedBuilder(
+                    animation: Listenable.merge([_flip, _slide]),
+                    builder: (context, _) {
+                      final angle =
+                          Curves.easeInOutCubic.transform(_flip.value) *
+                          math.pi;
+                      final back = angle >= math.pi / 2;
+                      final offset = _slide.value;
+                      final transform = Matrix4.identity()
+                        ..setEntry(3, 2, .0015)
+                        ..rotateZ(
+                          reducedMotion
+                              ? 0
+                              : (offset / width * .28).clamp(-.3, .3),
+                        )
+                        ..rotateY(back ? angle - math.pi : angle);
+                      return Transform.translate(
+                        offset: Offset(offset, 0),
+                        child: Transform(
+                          alignment: Alignment.center,
+                          transform: transform,
+                          child: _CardFace(
+                            card: card,
+                            back: back,
+                            highlight: (offset / width).abs().clamp(0.0, .5),
+                            positive: offset > 0,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 23),
+        if (!_revealComplete)
+          FilledButton(
+            onPressed: _flip.isAnimating ? null : _reveal,
+            child: const Text('Показать перевод'),
+          )
+        else
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: _rating(card, Grade.again, width)),
+              const SizedBox(width: 12),
+              Expanded(child: _rating(card, Grade.remembered, width)),
+            ],
+          ),
+        const SizedBox(height: 12),
+        Text(
+          _revealComplete
+              ? 'Свайп влево — не вспомнил, вправо — вспомнил.'
+              : 'Вспомните перевод, затем переверните карточку.',
+          textAlign: TextAlign.center,
+          style: body.copyWith(fontSize: 12),
+        ),
+      ],
+    );
+  }
+
+  Widget _rating(ReviewCard card, Grade grade, double width) {
+    final positive = grade == Grade.remembered;
+    final name = positive ? 'Вспомнил' : 'Не вспомнил';
+    final onTap = _submitting ? null : () => _rate(grade, width);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (positive)
+          FilledButton(onPressed: onTap, child: Text(name))
+        else
+          OutlinedButton(
+            onPressed: onTap,
+            style: OutlinedButton.styleFrom(minimumSize: const Size(0, 54)),
+            child: Text(name),
+          ),
+        const SizedBox(height: 6),
+        Text(
+          intervalLabel(card.state, grade),
+          style: body.copyWith(fontSize: 12),
+          textAlign: TextAlign.center,
+        ),
+      ],
+    );
+  }
+}
+
+class _CardFace extends StatelessWidget {
+  const _CardFace({
+    required this.card,
+    required this.back,
+    required this.highlight,
+    required this.positive,
+  });
+  final ReviewCard card;
+  final bool back;
+  final double highlight;
+  final bool positive;
+
+  @override
+  Widget build(BuildContext context) {
+    final code = back ? card.direction.answerCode : card.direction.promptCode;
+    final content = back ? card.answer : card.prompt;
+    return Panel(
+      padding: const EdgeInsets.all(22),
+      radius: 27,
+      border: Color.lerp(
+        back ? const Color(0xFF385A50) : line,
+        positive ? mint : muted,
+        highlight,
+      )!,
+      color: surface,
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Panel(
+                color: mintSurface,
+                border: const Color(0xFF2D4C41),
+                radius: 9,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                child: Text(
+                  card.direction.label,
+                  style: label.copyWith(color: mint, fontSize: 11),
+                ),
+              ),
+              const Spacer(),
+              Text(code, style: label),
+            ],
+          ),
+          Expanded(
+            child: Center(
+              child: SingleChildScrollView(
+                primary: false,
+                child: Column(
+                  children: [
+                    Text(
+                      content,
+                      textAlign: TextAlign.center,
+                      style: heading.copyWith(
+                        fontSize: content.length > 28 ? 31 : 44,
+                      ),
+                    ),
+                    if (back && card.entry.context.isNotEmpty) ...[
+                      const SizedBox(height: 15),
+                      Text(
+                        card.entry.context,
+                        textAlign: TextAlign.center,
+                        style: body,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+          SizedBox(
+            height: 18,
+            child: code == 'RU' && card.entry.automatic
+                ? const Center(child: TranslationCredit())
+                : null,
+          ),
+        ],
+      ),
+    );
+  }
+}
