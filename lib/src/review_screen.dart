@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -11,9 +12,17 @@ import 'lexicon.dart';
 final _wordSeparator = RegExp(r'\s+');
 
 class ReviewScreen extends StatefulWidget {
-  const ReviewScreen({super.key, required this.queue, required this.onGrade});
+  const ReviewScreen({
+    super.key,
+    required this.queue,
+    required this.onGrade,
+    required this.onSpeak,
+    required this.onStopSpeech,
+  });
   final List<ReviewCard> queue;
   final Future<void> Function(ReviewCard, Grade) onGrade;
+  final Future<void> Function(String) onSpeak;
+  final Future<void> Function() onStopSpeech;
 
   @override
   State<ReviewScreen> createState() => _ReviewScreenState();
@@ -28,11 +37,13 @@ class _ReviewScreenState extends State<ReviewScreen>
   late final _slide = AnimationController.unbounded(vsync: this);
   int _index = 0;
   bool _submitting = false;
+  bool _speaking = false;
 
   bool get _revealComplete => _flip.isCompleted;
 
   @override
   void dispose() {
+    _stopSpeech();
     _flip.dispose();
     _slide.dispose();
     super.dispose();
@@ -40,12 +51,40 @@ class _ReviewScreenState extends State<ReviewScreen>
 
   void _reveal() {
     if (_submitting || _flip.value > 0) return;
+    _stopSpeech();
     HapticFeedback.selectionClick();
     if (MediaQuery.disableAnimationsOf(context)) {
       _flip.value = 1;
     } else {
       _flip.forward();
     }
+  }
+
+  Future<void> _speak(String word) async {
+    if (_speaking || _submitting || _flip.isAnimating) return;
+    setState(() => _speaking = true);
+    try {
+      await widget.onSpeak(word).timeout(const Duration(seconds: 15));
+    } on PlatformException catch (error) {
+      if (!mounted) return;
+      final message = switch (error.code) {
+        'TTS_VOICE' => 'Установите английский голос в настройках Android.',
+        'TTS_UNAVAILABLE' => 'Включите синтез речи в настройках Android.',
+        _ => 'Не удалось озвучить слово. Попробуйте ещё раз.',
+      };
+      notifyUser(context, message);
+    } on TimeoutException {
+      _stopSpeech();
+      if (mounted) {
+        notifyUser(context, 'Озвучка не запустилась. Попробуйте ещё раз.');
+      }
+    } finally {
+      if (mounted) setState(() => _speaking = false);
+    }
+  }
+
+  void _stopSpeech() {
+    if (_speaking) widget.onStopSpeech().ignore();
   }
 
   void _settle(double velocity) {
@@ -79,6 +118,7 @@ class _ReviewScreenState extends State<ReviewScreen>
 
   Future<void> _rate(Grade grade, double width, [double velocity = 0]) async {
     if (_submitting || !_revealComplete) return;
+    _stopSpeech();
     final card = widget.queue[_index];
     setState(() => _submitting = true);
     HapticFeedback.lightImpact();
@@ -279,6 +319,11 @@ class _ReviewScreenState extends State<ReviewScreen>
                             child: _CardFace(
                               card: card,
                               back: back,
+                              speaking: _speaking,
+                              onSpeak:
+                                  _speaking || _submitting || _flip.isAnimating
+                                  ? null
+                                  : () => _speak(card.entry.english),
                               highlight: (offset / width).abs().clamp(0.0, .5),
                               positive: offset > 0,
                             ),
@@ -314,11 +359,15 @@ class _CardFace extends StatelessWidget {
   const _CardFace({
     required this.card,
     required this.back,
+    required this.speaking,
+    required this.onSpeak,
     required this.highlight,
     required this.positive,
   });
   final ReviewCard card;
   final bool back;
+  final bool speaking;
+  final VoidCallback? onSpeak;
   final double highlight;
   final bool positive;
 
@@ -386,6 +435,19 @@ class _CardFace extends StatelessWidget {
                         ],
                       ),
                     ),
+                    if (code == 'EN')
+                      IconButton(
+                        tooltip: 'Озвучить английское слово',
+                        onPressed: onSpeak,
+                        color: mint,
+                        disabledColor: muted,
+                        icon: Icon(
+                          speaking
+                              ? Icons.volume_up_rounded
+                              : Icons.volume_up_outlined,
+                          size: 22,
+                        ),
+                      ),
                     if (back && card.entry.context.isNotEmpty) ...[
                       const SizedBox(height: 15),
                       Text(

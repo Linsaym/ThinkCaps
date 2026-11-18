@@ -21,6 +21,11 @@ class ThinkCapsPlatform {
   Future<String?> scanScreenshot() =>
       _channel.invokeMethod<String>('scanScreenshot');
 
+  Future<void> speakEnglish(String word) =>
+      _channel.invokeMethod<void>('speakEnglish', word);
+
+  Future<void> stopSpeech() => _channel.invokeMethod<void>('stopSpeech');
+
   Future<String> translate(String word) async {
     final result = await _channel
         .invokeMethod<String>('translate', word)

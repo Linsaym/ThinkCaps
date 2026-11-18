@@ -32,6 +32,7 @@ class MainActivity : FlutterActivity() {
     private var channel: MethodChannel? = null
     private var scanResult: MethodChannel.Result? = null
     private var modelDownload: Task<Void>? = null
+    private var speech: EnglishSpeech? = null
     private var translatorUsed = false
     private var recognizerUsed = false
 
@@ -47,6 +48,14 @@ class MainActivity : FlutterActivity() {
                 }
                 "scanScreenshot" -> openScreenshot(result)
                 "translate" -> translate(call.arguments as String, result)
+                "speakEnglish" -> {
+                    val voice = speech ?: EnglishSpeech(applicationContext).also { speech = it }
+                    voice.speak(call.arguments as? String, result)
+                }
+                "stopSpeech" -> {
+                    speech?.stop()
+                    result.success(null)
+                }
                 "loadEntries" -> disk(result) { database.entries() }
                 "saveEntry" -> disk(result) { database.save(call.arguments as Map<*, *>); null }
                 "removeEntry" -> disk(result) { database.remove(call.arguments as Number); null }
@@ -151,8 +160,14 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    override fun onPause() {
+        speech?.stop()
+        super.onPause()
+    }
+
     override fun onDestroy() {
         channel?.setMethodCallHandler(null)
+        speech?.close()
         if (translatorUsed) translator.close()
         if (recognizerUsed) recognizer.close()
         executor.execute { database.close() }

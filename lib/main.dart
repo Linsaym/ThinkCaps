@@ -150,7 +150,12 @@ class _HomeState extends State<_Home> with WidgetsBindingObserver {
     if (queue.isEmpty) return;
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
-        builder: (_) => ReviewScreen(queue: queue, onGrade: _platform.grade),
+        builder: (_) => ReviewScreen(
+          queue: queue,
+          onGrade: _platform.grade,
+          onSpeak: _platform.speakEnglish,
+          onStopSpeech: _platform.stopSpeech,
+        ),
       ),
     );
     if (mounted) await _load();

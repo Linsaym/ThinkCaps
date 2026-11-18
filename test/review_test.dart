@@ -17,16 +17,24 @@ void main() {
       reverse: fresh,
     );
     final ratings = <(Direction, Grade)>[];
+    final spoken = <String>[];
+    final speakButton = find.byTooltip('Озвучить английское слово');
     await tester.pumpWidget(
       MaterialApp(
         theme: appTheme(),
         home: ReviewScreen(
           queue: dueCards([entry], fresh.due),
           onGrade: (card, grade) async => ratings.add((card.direction, grade)),
+          onSpeak: (word) async => spoken.add(word),
+          onStopSpeech: () async {},
         ),
       ),
     );
     expect(find.text('curiosity'), findsOneWidget);
+    expect(find.text('любопытство'), findsNothing);
+    await tester.tap(speakButton);
+    await tester.pumpAndSettle();
+    expect(spoken, ['curiosity']);
     expect(find.text('любопытство'), findsNothing);
     await tester.fling(find.text('curiosity'), const Offset(280, 0), 650);
     await tester.pumpAndSettle();
@@ -35,6 +43,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('любопытство'), findsOneWidget);
     expect(find.text(entry.context), findsOneWidget);
+    expect(speakButton, findsNothing);
     expect(find.byType(FilledButton), findsNothing);
     expect(find.byType(OutlinedButton), findsNothing);
     expect(find.textContaining('через'), findsNothing);
@@ -44,8 +53,12 @@ void main() {
     expect(find.text('RU → EN'), findsOneWidget);
     expect(find.text('любопытство'), findsOneWidget);
     expect(find.text('curiosity'), findsNothing);
+    expect(speakButton, findsNothing);
     await tester.tap(find.text('Показать перевод'));
     await tester.pumpAndSettle();
+    await tester.tap(speakButton);
+    await tester.pumpAndSettle();
+    expect(spoken, ['curiosity', 'curiosity']);
     await tester.fling(find.text('curiosity'), const Offset(-280, 0), 950);
     await tester.pumpAndSettle();
     expect(ratings, [
@@ -81,6 +94,8 @@ void main() {
         home: ReviewScreen(
           queue: [ReviewCard(entry, Direction.enToRu)],
           onGrade: (_, _) async {},
+          onSpeak: (_) async {},
+          onStopSpeech: () async {},
         ),
       ),
     );
