@@ -55,4 +55,52 @@ void main() {
     expect(find.text('Повторение завершено'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('long words fit without splitting at a narrow screen width', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(360, 800);
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    const longEnglish = 'uncompromisingly-long-description';
+    const longRussian = 'Оглушительными';
+    final fresh = ReviewState(due: DateTime.utc(2026, 11, 18));
+    final entry = Entry(
+      id: 1,
+      english: 'an $longEnglish',
+      russian: longRussian,
+      context: '',
+      automatic: true,
+      forward: fresh,
+      reverse: fresh,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: appTheme(),
+        home: ReviewScreen(
+          queue: [ReviewCard(entry, Direction.enToRu)],
+          onGrade: (_, _) async {},
+        ),
+      ),
+    );
+
+    Rect expectFittedWord(String word) {
+      final finder = find.text(word);
+      final widget = tester.widget<Text>(finder);
+      expect(widget.maxLines, 1);
+      expect(widget.softWrap, isFalse);
+      final bounds = tester.getRect(finder);
+      expect(bounds.left, greaterThanOrEqualTo(45.9));
+      expect(bounds.right, lessThanOrEqualTo(314.1));
+      return bounds;
+    }
+
+    final englishBounds = expectFittedWord(longEnglish);
+    expect(englishBounds.top, greaterThan(tester.getRect(find.text('an')).top));
+    await tester.tap(find.text('Показать перевод'));
+    await tester.pumpAndSettle();
+    expectFittedWord(longRussian);
+    expect(tester.takeException(), isNull);
+  });
 }

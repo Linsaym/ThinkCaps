@@ -193,7 +193,7 @@ class _HomeState extends State<_Home> with WidgetsBindingObserver {
     try {
       final result = await _platform.scanScreenshot();
       if (mounted && result != null && revision == _importRevision) {
-        _setImport(result, 'Текст со скриншота');
+        _setImport(result.toLowerCase(), 'Текст со скриншота');
       }
     } on PlatformException {
       if (mounted) {

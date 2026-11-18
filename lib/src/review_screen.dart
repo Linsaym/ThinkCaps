@@ -8,6 +8,8 @@ import 'package:flutter/services.dart';
 import 'design.dart';
 import 'lexicon.dart';
 
+final _wordSeparator = RegExp(r'\s+');
+
 class ReviewScreen extends StatefulWidget {
   const ReviewScreen({super.key, required this.queue, required this.onGrade});
   final List<ReviewCard> queue;
@@ -324,6 +326,8 @@ class _CardFace extends StatelessWidget {
   Widget build(BuildContext context) {
     final code = back ? card.direction.answerCode : card.direction.promptCode;
     final content = back ? card.answer : card.prompt;
+    final fontSize = content.length > 28 ? 31.0 : 44.0;
+    final termStyle = heading.copyWith(fontSize: fontSize);
     return Panel(
       padding: const EdgeInsets.all(22),
       radius: 27,
@@ -360,11 +364,26 @@ class _CardFace extends StatelessWidget {
                 primary: false,
                 child: Column(
                   children: [
-                    Text(
-                      content,
-                      textAlign: TextAlign.center,
-                      style: heading.copyWith(
-                        fontSize: content.length > 28 ? 31 : 44,
+                    Semantics(
+                      label: content,
+                      excludeSemantics: true,
+                      child: Wrap(
+                        alignment: WrapAlignment.center,
+                        spacing:
+                            MediaQuery.textScalerOf(context).scale(fontSize) *
+                            .2,
+                        children: [
+                          for (final word in content.split(_wordSeparator))
+                            FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                word,
+                                softWrap: false,
+                                maxLines: 1,
+                                style: termStyle,
+                              ),
+                            ),
+                        ],
                       ),
                     ),
                     if (back && card.entry.context.isNotEmpty) ...[
