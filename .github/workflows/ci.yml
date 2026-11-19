@@ -41,7 +41,7 @@ jobs:
       - name: Install Android SDK components
         shell: bash
         run: |
-          sdkmanager --install 'platforms;android-36' 'build-tools;36.1.0' 'ndk;28.2.13676358' 'cmake;3.22.1'
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install 'platforms;android-36' 'build-tools;36.1.0' 'ndk;28.2.13676358' 'cmake;3.22.1'
 
       - name: Check and build
         shell: pwsh
