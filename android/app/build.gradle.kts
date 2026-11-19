@@ -37,6 +37,10 @@ android {
         versionName = flutter.versionName
     }
 
+    buildTypes.getByName("debug") {
+        applicationIdSuffix = ".debug"
+    }
+
     signingProperties?.let { props ->
         val releaseKey = signingConfigs.create("thinkcapsRelease") {
             storeFile = file(props.getProperty("storeFile"))

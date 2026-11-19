@@ -1,0 +1,15 @@
+version = 1
+name = "ThinkCaps"
+
+[setup]
+script = "pwsh -NoProfile -File tool/check.ps1 setup"
+
+[[actions]]
+name = "Проверить проект"
+icon = "run"
+command = "pwsh -NoProfile -File tool/check.ps1"
+
+[[actions]]
+name = "Собрать debug APK"
+icon = "run"
+command = "pwsh -NoProfile -File tool/check.ps1 android"

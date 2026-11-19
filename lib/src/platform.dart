@@ -79,14 +79,15 @@ class ThinkCapsPlatform {
 
   Future<void> remove(int id) => _channel.invokeMethod('removeEntry', id);
 
-  Future<void> grade(ReviewCard card, Grade grade) {
+  Future<ReviewState> grade(ReviewCard card, Grade grade) async {
     final next = card.state.after(grade, DateTime.now());
-    return _channel.invokeMethod('grade', {
+    await _channel.invokeMethod<void>('grade', {
       'id': card.entry.id,
       'direction': card.direction.name,
       'due': next.due.millisecondsSinceEpoch,
       'streak': next.streak,
       'days': next.days,
     });
+    return next;
   }
 }

@@ -9,6 +9,7 @@ class TodayScreen extends StatelessWidget {
     required this.entries,
     required this.due,
     required this.now,
+    required this.nextReview,
     required this.onAdd,
     required this.onReview,
     required this.onDictionary,
@@ -18,6 +19,7 @@ class TodayScreen extends StatelessWidget {
   final List<Entry> entries;
   final List<ReviewCard> due;
   final DateTime now;
+  final DateTime? nextReview;
   final VoidCallback onAdd;
   final VoidCallback onReview;
   final VoidCallback onDictionary;
@@ -44,17 +46,11 @@ class TodayScreen extends StatelessWidget {
         .toUpperCase();
   }
 
-  String _nextReview(BuildContext context) {
-    final tomorrow = DateTime(now.year, now.month, now.day + 1);
-    var next = tomorrow;
-    for (final entry in entries) {
-      for (final state in [entry.forward, entry.reverse]) {
-        if (state.due.isAfter(now) && state.due.isBefore(next)) {
-          next = state.due;
-        }
-      }
+  String _nextReviewLabel(BuildContext context) {
+    final next = nextReview;
+    if (next == null || !DateUtils.isSameDay(now, next)) {
+      return 'На сегодня всё';
     }
-    if (next == tomorrow) return 'На сегодня всё';
     return 'Следующее в ${TimeOfDay.fromDateTime(next).format(context)}';
   }
 
@@ -69,7 +65,7 @@ class TodayScreen extends StatelessWidget {
       _ReviewPanel(
         count: due.length,
         hasEntries: entries.isNotEmpty,
-        emptyLabel: due.isEmpty ? _nextReview(context) : '',
+        emptyLabel: due.isEmpty ? _nextReviewLabel(context) : '',
         onAdd: onAdd,
         onReview: onReview,
       ),

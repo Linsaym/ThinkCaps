@@ -35,6 +35,29 @@ void main() {
     expect(lapse.due, dayThree.due.add(const Duration(minutes: 5)));
   });
 
+  test('a revealed answer delays only the opposite question', () {
+    final fresh = ReviewState(due: now);
+    final entry = Entry(
+      id: 1,
+      english: 'forest',
+      russian: 'лес',
+      context: '',
+      automatic: false,
+      forward: fresh,
+      reverse: fresh,
+    );
+    final spacing = ReviewSpacing()
+      ..recordExposure(ReviewCard(entry, Direction.enToRu), now);
+
+    final available = dueCards([entry], now, spacing: spacing);
+    expect(available.map((card) => card.direction), [Direction.enToRu]);
+    expect(dueCards([entry], now), hasLength(2));
+    expect(
+      dueCards([entry], now.add(const Duration(minutes: 1)), spacing: spacing),
+      hasLength(2),
+    );
+  });
+
   test('questions for the same term are separated when possible', () {
     final state = ReviewState(due: now);
     final entries = [

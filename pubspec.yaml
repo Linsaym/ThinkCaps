@@ -1,7 +1,7 @@
 name: thinkcaps
 description: Карточки для изучения английского на Android.
 publish_to: 'none'
-version: 1.1.2+6
+version: 1.2.0+7
 
 environment:
   sdk: ^3.11.5
@@ -16,6 +16,8 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  integration_test:
+    sdk: flutter
 
 flutter:
   uses-material-design: true

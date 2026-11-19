@@ -62,26 +62,53 @@ class Entry {
 }
 
 class ReviewCard {
-  const ReviewCard(this.entry, this.direction);
+  const ReviewCard(this.entry, this.direction, {ReviewState? state})
+    : _state = state;
+
   final Entry entry;
   final Direction direction;
+  final ReviewState? _state;
 
   String get prompt =>
       direction == Direction.enToRu ? entry.english : entry.russian;
   String get answer =>
       direction == Direction.enToRu ? entry.russian : entry.english;
-  ReviewState get state => entry.state(direction);
+  ReviewState get state => _state ?? entry.state(direction);
 }
 
-List<ReviewCard> dueCards(Iterable<Entry> entries, DateTime now) {
+class ReviewSpacing {
+  static const _oppositeDirectionDelay = Duration(minutes: 1);
+  final _blockedUntil = <(int, Direction), DateTime>{};
+
+  DateTime availableAt(ReviewCard card) {
+    final blocked = _blockedUntil[(card.entry.id, card.direction)];
+    final due = card.state.due;
+    return blocked != null && blocked.isAfter(due) ? blocked : due;
+  }
+
+  void recordExposure(ReviewCard card, DateTime now) {
+    _blockedUntil.removeWhere((_, until) => !until.isAfter(now));
+    final opposite = card.direction == Direction.enToRu
+        ? Direction.ruToEn
+        : Direction.enToRu;
+    _blockedUntil[(card.entry.id, opposite)] = now.add(_oppositeDirectionDelay);
+  }
+}
+
+List<ReviewCard> dueCards(
+  Iterable<Entry> entries,
+  DateTime now, {
+  ReviewSpacing? spacing,
+}) {
   final forward = Queue<ReviewCard>();
   final reverse = Queue<ReviewCard>();
   for (final entry in entries.toList().reversed) {
-    if (!entry.forward.due.isAfter(now)) {
-      forward.add(ReviewCard(entry, Direction.enToRu));
-    }
-    if (!entry.reverse.due.isAfter(now)) {
-      reverse.add(ReviewCard(entry, Direction.ruToEn));
+    for (final direction in Direction.values) {
+      final card = ReviewCard(entry, direction);
+      final available = spacing?.availableAt(card) ?? card.state.due;
+      if (!available.isAfter(now)) {
+        (direction == Direction.enToRu ? forward : reverse).add(card);
+      }
     }
   }
   final queue = <ReviewCard>[];

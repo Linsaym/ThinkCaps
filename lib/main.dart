@@ -50,6 +50,7 @@ class _Home extends StatefulWidget {
 
 class _HomeState extends State<_Home> with WidgetsBindingObserver {
   final _platform = ThinkCapsPlatform();
+  final _reviewSpacing = ReviewSpacing();
   List<Entry>? _entries;
   List<String> _sentences = [];
   String _source = '';
@@ -85,17 +86,27 @@ class _HomeState extends State<_Home> with WidgetsBindingObserver {
     }
   }
 
+  DateTime? _nextReviewAfter(DateTime now) {
+    DateTime? next;
+    for (final entry in _entries ?? <Entry>[]) {
+      for (final direction in Direction.values) {
+        final due = _reviewSpacing.availableAt(ReviewCard(entry, direction));
+        if (due.isAfter(now) && (next == null || due.isBefore(next))) {
+          next = due;
+        }
+      }
+    }
+    return next;
+  }
+
   void _scheduleRefresh() {
     _dueTimer?.cancel();
     final now = DateTime.now();
     final tomorrow = DateTime(now.year, now.month, now.day + 1);
-    var next = tomorrow;
-    for (final entry in _entries ?? <Entry>[]) {
-      for (final direction in Direction.values) {
-        final due = entry.state(direction).due;
-        if (due.isAfter(now) && due.isBefore(next)) next = due;
-      }
-    }
+    final nextReview = _nextReviewAfter(now);
+    final next = nextReview != null && nextReview.isBefore(tomorrow)
+        ? nextReview
+        : tomorrow;
     _dueTimer = Timer(next.difference(now), () {
       if (mounted) setState(() {});
       _scheduleRefresh();
@@ -146,12 +157,16 @@ class _HomeState extends State<_Home> with WidgetsBindingObserver {
   }
 
   Future<void> _startReview() async {
-    final queue = dueCards(_entries ?? [], DateTime.now());
-    if (queue.isEmpty) return;
+    final now = DateTime.now();
+    final queue = dueCards(_entries ?? [], now);
+    if (queue.every((card) => _reviewSpacing.availableAt(card).isAfter(now))) {
+      return;
+    }
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
         builder: (_) => ReviewScreen(
           queue: queue,
+          spacing: _reviewSpacing,
           onGrade: _platform.grade,
           onSpeak: _platform.speakEnglish,
           onStopSpeech: _platform.stopSpeech,
@@ -228,7 +243,7 @@ class _HomeState extends State<_Home> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     final entries = _entries;
     final now = DateTime.now();
-    final due = dueCards(entries ?? [], now);
+    final due = dueCards(entries ?? [], now, spacing: _reviewSpacing);
     return PopScope(
       canPop: _tab == 0,
       onPopInvokedWithResult: (popped, _) {
@@ -299,6 +314,9 @@ class _HomeState extends State<_Home> with WidgetsBindingObserver {
                                 entries: entries,
                                 due: due,
                                 now: now,
+                                nextReview: due.isEmpty
+                                    ? _nextReviewAfter(now)
+                                    : null,
                                 onAdd: _openEditor,
                                 onReview: _startReview,
                                 onDictionary: () => _selectTab(1),

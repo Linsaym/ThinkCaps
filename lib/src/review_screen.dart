@@ -15,14 +15,18 @@ class ReviewScreen extends StatefulWidget {
   const ReviewScreen({
     super.key,
     required this.queue,
+    required this.spacing,
     required this.onGrade,
     required this.onSpeak,
     required this.onStopSpeech,
+    this.now = DateTime.now,
   });
   final List<ReviewCard> queue;
-  final Future<void> Function(ReviewCard, Grade) onGrade;
+  final ReviewSpacing spacing;
+  final Future<ReviewState> Function(ReviewCard, Grade) onGrade;
   final Future<void> Function(String) onSpeak;
   final Future<void> Function() onStopSpeech;
+  final DateTime Function() now;
 
   @override
   State<ReviewScreen> createState() => _ReviewScreenState();
@@ -35,22 +39,64 @@ class _ReviewScreenState extends State<ReviewScreen>
     duration: const Duration(milliseconds: 410),
   )..addStatusListener((_) => setState(() {}));
   late final _slide = AnimationController.unbounded(vsync: this);
-  int _index = 0;
+  late final _pending = [...widget.queue];
+  late final AppLifecycleListener _lifecycle;
+  ReviewCard? _current;
+  DateTime? _nextAttempt;
+  Timer? _retryTimer;
+  int _remembered = 0;
   bool _submitting = false;
   bool _speaking = false;
 
   bool get _revealComplete => _flip.isCompleted;
 
   @override
+  void initState() {
+    super.initState();
+    _advance();
+    _lifecycle = AppLifecycleListener(
+      onResume: () {
+        if (_nextAttempt != null) setState(_advance);
+      },
+    );
+  }
+
+  @override
   void dispose() {
+    _retryTimer?.cancel();
+    _lifecycle.dispose();
     _stopSpeech();
     _flip.dispose();
     _slide.dispose();
     super.dispose();
   }
 
+  void _advance() {
+    _retryTimer?.cancel();
+    _current = null;
+    _nextAttempt = null;
+    final now = widget.now();
+    DateTime? next;
+    for (var i = 0; i < _pending.length; i++) {
+      final available = widget.spacing.availableAt(_pending[i]);
+      if (!available.isAfter(now)) {
+        _current = _pending.removeAt(i);
+        return;
+      }
+      if (next == null || available.isBefore(next)) next = available;
+    }
+    if (next != null) {
+      _nextAttempt = next;
+      _retryTimer = Timer(next.difference(now), () => setState(_advance));
+    }
+  }
+
   void _reveal() {
-    if (_submitting || _flip.value > 0) return;
+    final card = _current;
+    if (card == null || _submitting || _flip.value > 0 || _flip.isAnimating) {
+      return;
+    }
+    widget.spacing.recordExposure(card, widget.now());
     HapticFeedback.selectionClick();
     if (MediaQuery.disableAnimationsOf(context)) {
       _flip.value = 1;
@@ -116,9 +162,9 @@ class _ReviewScreenState extends State<ReviewScreen>
   }
 
   Future<void> _rate(Grade grade, double width, [double velocity = 0]) async {
-    if (_submitting || !_revealComplete) return;
+    final card = _current;
+    if (card == null || _submitting || !_revealComplete) return;
     _stopSpeech();
-    final card = widget.queue[_index];
     setState(() => _submitting = true);
     HapticFeedback.lightImpact();
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
@@ -128,23 +174,31 @@ class _ReviewScreenState extends State<ReviewScreen>
             .round()
             .clamp(140, 270);
     try {
-      await Future.wait([
-        if (!reduceMotion)
-          _slide
-              .animateTo(
-                target,
-                duration: Duration(milliseconds: duration),
-                curve: Curves.easeInCubic,
-              )
-              .orCancel,
-        widget.onGrade(card, grade),
-      ]);
+      final animation = reduceMotion
+          ? Future<void>.value()
+          : _slide
+                .animateTo(
+                  target,
+                  duration: Duration(milliseconds: duration),
+                  curve: Curves.easeInCubic,
+                )
+                .orCancel;
+      final (next, _) = await (widget.onGrade(card, grade), animation).wait;
       if (!mounted) return;
       setState(() {
-        _index++;
+        widget.spacing.recordExposure(card, widget.now());
+        if (grade == Grade.again) {
+          _pending.insert(
+            0,
+            ReviewCard(card.entry, card.direction, state: next),
+          );
+        } else {
+          _remembered++;
+        }
         _flip.reset();
         _slide.value = 0;
         _submitting = false;
+        _advance();
       });
     } catch (_) {
       if (!mounted) return;
@@ -156,7 +210,8 @@ class _ReviewScreenState extends State<ReviewScreen>
 
   @override
   Widget build(BuildContext context) {
-    final finished = _index == widget.queue.length;
+    final card = _current;
+    final nextAttempt = _nextAttempt;
     return PopScope(
       canPop: !_submitting,
       child: Scaffold(
@@ -190,9 +245,9 @@ class _ReviewScreenState extends State<ReviewScreen>
                               style: subheading.copyWith(fontSize: 20),
                             ),
                           ),
-                          if (!finished)
+                          if (card != null)
                             Text(
-                              '${_index + 1} / ${widget.queue.length}',
+                              '${_remembered + 1} / ${widget.queue.length}',
                               style: label.copyWith(letterSpacing: .4),
                             ),
                         ],
@@ -202,20 +257,33 @@ class _ReviewScreenState extends State<ReviewScreen>
                         borderRadius: BorderRadius.circular(4),
                         child: LinearProgressIndicator(
                           minHeight: 4,
-                          value: _index / widget.queue.length,
+                          value: widget.queue.isEmpty
+                              ? 1
+                              : _remembered / widget.queue.length,
                           backgroundColor: line,
                           valueColor: const AlwaysStoppedAnimation(mint),
                         ),
                       ),
                       const SizedBox(height: 23),
-                      if (finished)
-                        _completed()
-                      else
+                      if (card != null) ...[
                         _activeCard(
-                          widget.queue[_index],
+                          card,
                           width,
                           (space.maxHeight - 245).clamp(285.0, 455.0),
                         ),
+                        if (!_revealComplete)
+                          const Padding(
+                            padding: EdgeInsets.only(top: 12),
+                            child: Text(
+                              'Назовите ответ, затем коснитесь карточки.',
+                              textAlign: TextAlign.center,
+                              style: body,
+                            ),
+                          ),
+                      ] else if (nextAttempt != null)
+                        _waiting(context, nextAttempt)
+                      else
+                        _completed(),
                     ],
                   );
                 },
@@ -226,6 +294,17 @@ class _ReviewScreenState extends State<ReviewScreen>
       ),
     );
   }
+
+  Widget _waiting(BuildContext context, DateTime nextAttempt) => EmptyState(
+    icon: Icons.schedule_rounded,
+    title: 'Пауза перед повторением',
+    detail:
+        'Следующая попытка в ${TimeOfDay.fromDateTime(nextAttempt).format(context)}. Можно вернуться позже.',
+    action: OutlinedButton(
+      onPressed: () => Navigator.pop(context),
+      child: const Text('Вернуться'),
+    ),
+  );
 
   Widget _completed() => EmptyState(
     icon: Icons.check_circle_outline_rounded,
@@ -242,110 +321,91 @@ class _ReviewScreenState extends State<ReviewScreen>
   );
 
   Widget _activeCard(ReviewCard card, double width, double height) {
-    final extraCard = _index + 1 < widget.queue.length;
+    final now = widget.now();
+    final extraCard = _pending.any(
+      (card) => !widget.spacing.availableAt(card).isAfter(now),
+    );
     final reducedMotion = MediaQuery.disableAnimationsOf(context);
     final canRate = _revealComplete && !_submitting;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        SizedBox(
-          height: height + 7,
-          child: Stack(
-            alignment: Alignment.topCenter,
-            children: [
-              if (extraCard)
-                Positioned.fill(
-                  left: 10,
-                  right: 10,
-                  top: 12,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF14171B),
-                      border: Border.all(color: line),
-                      borderRadius: BorderRadius.circular(27),
-                    ),
-                  ),
-                ),
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                height: height,
-                child: Semantics(
-                  customSemanticsActions: canRate
-                      ? {
-                          const CustomSemanticsAction(
-                            label: 'Не вспомнил',
-                          ): () =>
-                              _rate(Grade.again, width),
-                          const CustomSemanticsAction(label: 'Вспомнил'): () =>
-                              _rate(Grade.remembered, width),
-                        }
-                      : null,
-                  child: GestureDetector(
-                    onTap: _revealComplete ? null : _reveal,
-                    onHorizontalDragStart: canRate
-                        ? (_) => _slide.stop()
-                        : null,
-                    onHorizontalDragUpdate: canRate
-                        ? (details) => _slide.value += details.delta.dx
-                        : null,
-                    onHorizontalDragCancel: canRate ? () => _settle(0) : null,
-                    onHorizontalDragEnd: canRate
-                        ? (details) => _endDrag(details, width)
-                        : null,
-                    child: AnimatedBuilder(
-                      animation: Listenable.merge([_flip, _slide]),
-                      builder: (context, _) {
-                        final angle =
-                            Curves.easeInOutCubic.transform(_flip.value) *
-                            math.pi;
-                        final back = angle >= math.pi / 2;
-                        final offset = _slide.value;
-                        final transform = Matrix4.identity()
-                          ..setEntry(3, 2, .0015)
-                          ..rotateZ(
-                            reducedMotion
-                                ? 0
-                                : (offset / width * .28).clamp(-.3, .3),
-                          )
-                          ..rotateY(back ? angle - math.pi : angle);
-                        return Transform.translate(
-                          offset: Offset(offset, 0),
-                          child: Transform(
-                            alignment: Alignment.center,
-                            transform: transform,
-                            child: _CardFace(
-                              card: card,
-                              back: back,
-                              onSpeak: () => _speak(card.entry.english),
-                              highlight: (offset / width).abs().clamp(0.0, .5),
-                              positive: offset > 0,
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
+    return SizedBox(
+      height: height + 7,
+      child: Stack(
+        alignment: Alignment.topCenter,
+        children: [
+          if (extraCard)
+            Positioned.fill(
+              left: 10,
+              right: 10,
+              top: 12,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: const Color(0xFF14171B),
+                  border: Border.all(color: line),
+                  borderRadius: BorderRadius.circular(27),
                 ),
               ),
-            ],
-          ),
-        ),
-        if (!_revealComplete) ...[
-          const SizedBox(height: 23),
-          FilledButton(
-            onPressed: _flip.isAnimating ? null : _reveal,
-            child: const Text('Показать перевод'),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'Вспомните перевод, затем переверните карточку.',
-            textAlign: TextAlign.center,
-            style: body.copyWith(fontSize: 12),
+            ),
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            height: height,
+            child: Semantics(
+              hint: _revealComplete ? null : 'Перевернуть карточку',
+              customSemanticsActions: canRate
+                  ? {
+                      const CustomSemanticsAction(label: 'Не вспомнил'): () =>
+                          _rate(Grade.again, width),
+                      const CustomSemanticsAction(label: 'Вспомнил'): () =>
+                          _rate(Grade.remembered, width),
+                    }
+                  : null,
+              child: GestureDetector(
+                onTap: _revealComplete ? null : _reveal,
+                onHorizontalDragStart: canRate ? (_) => _slide.stop() : null,
+                onHorizontalDragUpdate: canRate
+                    ? (details) => _slide.value += details.delta.dx
+                    : null,
+                onHorizontalDragCancel: canRate ? () => _settle(0) : null,
+                onHorizontalDragEnd: canRate
+                    ? (details) => _endDrag(details, width)
+                    : null,
+                child: AnimatedBuilder(
+                  animation: Listenable.merge([_flip, _slide]),
+                  builder: (context, _) {
+                    final angle =
+                        Curves.easeInOutCubic.transform(_flip.value) * math.pi;
+                    final back = angle >= math.pi / 2;
+                    final offset = _slide.value;
+                    final transform = Matrix4.identity()
+                      ..setEntry(3, 2, .0015)
+                      ..rotateZ(
+                        reducedMotion
+                            ? 0
+                            : (offset / width * .28).clamp(-.3, .3),
+                      )
+                      ..rotateY(back ? angle - math.pi : angle);
+                    return Transform.translate(
+                      offset: Offset(offset, 0),
+                      child: Transform(
+                        alignment: Alignment.center,
+                        transform: transform,
+                        child: _CardFace(
+                          card: card,
+                          back: back,
+                          onSpeak: () => _speak(card.entry.english),
+                          highlight: (offset / width).abs().clamp(0.0, .5),
+                          positive: offset > 0,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
           ),
         ],
-      ],
+      ),
     );
   }
 }
@@ -371,6 +431,8 @@ class _CardFace extends StatelessWidget {
         ? '${direction.promptCode} · ${direction.answerCode}'
         : direction.promptCode;
     final content = back ? card.answer : card.prompt;
+    final promptIsEnglish = direction == Direction.enToRu;
+    final contentIsEnglish = back ? !promptIsEnglish : promptIsEnglish;
     final showCredit =
         card.entry.automatic && (back || direction.promptCode == 'RU');
     return Panel(
@@ -418,6 +480,7 @@ class _CardFace extends StatelessWidget {
                           color: muted,
                           fontWeight: FontWeight.w700,
                         ),
+                        speak: promptIsEnglish,
                       ),
                       const SizedBox(height: 10),
                     ],
@@ -425,6 +488,7 @@ class _CardFace extends StatelessWidget {
                       context,
                       content,
                       heading.copyWith(fontSize: content.length > 28 ? 31 : 44),
+                      speak: contentIsEnglish,
                     ),
                     if (back && card.entry.context.isNotEmpty) ...[
                       const SizedBox(height: 15),
@@ -448,42 +512,46 @@ class _CardFace extends StatelessWidget {
     );
   }
 
-  Widget _term(BuildContext context, String term, TextStyle style) => Semantics(
-    label: term,
-    hint: 'Озвучить английское слово',
-    button: true,
-    onTap: onSpeak,
-    excludeSemantics: true,
-    child: Material(
-      type: MaterialType.transparency,
-      child: InkWell(
-        onTap: onSpeak,
-        borderRadius: BorderRadius.circular(10),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
-          child: Center(
-            widthFactor: 1,
-            heightFactor: 1,
-            child: Wrap(
-              alignment: WrapAlignment.center,
-              spacing:
-                  MediaQuery.textScalerOf(context).scale(style.fontSize!) * .2,
-              children: [
-                for (final word in term.split(_wordSeparator))
-                  FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                      word,
-                      softWrap: false,
-                      maxLines: 1,
-                      style: style,
-                    ),
-                  ),
-              ],
-            ),
-          ),
+  Widget _term(
+    BuildContext context,
+    String term,
+    TextStyle style, {
+    required bool speak,
+  }) {
+    final content = ConstrainedBox(
+      constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+      child: Center(
+        widthFactor: 1,
+        heightFactor: 1,
+        child: Wrap(
+          alignment: WrapAlignment.center,
+          spacing: MediaQuery.textScalerOf(context).scale(style.fontSize!) * .2,
+          children: [
+            for (final word in term.split(_wordSeparator))
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(word, softWrap: false, maxLines: 1, style: style),
+              ),
+          ],
         ),
       ),
-    ),
-  );
+    );
+    return Semantics(
+      label: term,
+      hint: speak ? 'Озвучить английское слово' : null,
+      button: speak ? true : null,
+      onTap: speak ? onSpeak : null,
+      excludeSemantics: true,
+      child: speak
+          ? Material(
+              type: MaterialType.transparency,
+              child: InkWell(
+                onTap: onSpeak,
+                borderRadius: BorderRadius.circular(10),
+                child: content,
+              ),
+            )
+          : content,
+    );
+  }
 }
