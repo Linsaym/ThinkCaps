@@ -70,11 +70,16 @@ try {
     $env:NO_PROXY = $bypass
     $env:THINKCAPS_KEY_PROPERTIES = $null
 
-    $versionJson = & $flutter --version --machine
+    $versionOutput = (& $flutter --version --machine) -join "`n"
     if ($LASTEXITCODE -ne 0) {
         throw "Flutter version check exited with code $LASTEXITCODE."
     }
-    $installed = ($versionJson | ConvertFrom-Json).frameworkVersion
+    # A fresh SDK can print bootstrap progress before the version JSON.
+    $jsonStart = [regex]::Match($versionOutput, '(?m)^[ \t]*\{')
+    if (!$jsonStart.Success) {
+        throw 'Flutter did not return a machine-readable version.'
+    }
+    $installed = (ConvertFrom-Json -InputObject $versionOutput.Substring($jsonStart.Index)).frameworkVersion
     if ($installed -ne $version) {
         throw "Expected Flutter $version, found $installed at $flutter. Set FLUTTER_ROOT to the pinned SDK."
     }
