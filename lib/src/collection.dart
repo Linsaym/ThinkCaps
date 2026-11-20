@@ -234,7 +234,7 @@ class _ReviewPanel extends StatelessWidget {
               children: [
                 Expanded(
                   child: Text(
-                    hasEntries ? 'Начать повторение' : 'Добавить слово',
+                    hasEntries ? 'Начать повторение' : 'Добавить карточку',
                   ),
                 ),
                 Icon(
@@ -250,7 +250,7 @@ class _ReviewPanel extends StatelessWidget {
             style: OutlinedButton.styleFrom(
               side: const BorderSide(color: Color(0xFF3D574E)),
             ),
-            child: const Text('Добавить слово'),
+            child: const Text('Добавить карточку'),
           ),
       ],
     ),
@@ -359,7 +359,7 @@ class _DictionaryScreenState extends State<DictionaryScreen> {
                 action: _query.isEmpty
                     ? OutlinedButton(
                         onPressed: widget.onAdd,
-                        child: const Text('Добавить слово'),
+                        child: const Text('Добавить карточку'),
                       )
                     : null,
               ),

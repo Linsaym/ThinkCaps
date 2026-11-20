@@ -10,6 +10,7 @@ import 'src/editor.dart';
 import 'src/import_screen.dart';
 import 'src/lexicon.dart';
 import 'src/platform.dart';
+import 'src/quick_add_screen.dart';
 import 'src/review_screen.dart';
 
 void main() {
@@ -134,6 +135,13 @@ class _HomeState extends State<_Home> with WidgetsBindingObserver {
   void _selectTab(int value) {
     FocusScope.of(context).unfocus();
     setState(() => _tab = value);
+  }
+
+  Future<void> _openQuickAdd() async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(builder: (_) => QuickAddScreen(platform: _platform)),
+    );
+    if (mounted) await _load();
   }
 
   Future<void> _openEditor({
@@ -272,8 +280,8 @@ class _HomeState extends State<_Home> with WidgetsBindingObserver {
                           if (entries != null &&
                               (_tab == 1 || (_tab == 0 && due.isNotEmpty)))
                             IconButton(
-                              onPressed: _openEditor,
-                              tooltip: 'Добавить слово',
+                              onPressed: _openQuickAdd,
+                              tooltip: 'Добавить карточку',
                               icon: const Icon(Icons.add_rounded, size: 23),
                               style: IconButton.styleFrom(
                                 shape: RoundedRectangleBorder(
@@ -317,7 +325,7 @@ class _HomeState extends State<_Home> with WidgetsBindingObserver {
                                 nextReview: due.isEmpty
                                     ? _nextReviewAfter(now)
                                     : null,
-                                onAdd: _openEditor,
+                                onAdd: _openQuickAdd,
                                 onReview: _startReview,
                                 onDictionary: () => _selectTab(1),
                                 onImport: () => _selectTab(2),
@@ -326,7 +334,7 @@ class _HomeState extends State<_Home> with WidgetsBindingObserver {
                               DictionaryScreen(
                                 entries: entries,
                                 now: now,
-                                onAdd: _openEditor,
+                                onAdd: _openQuickAdd,
                                 onEntry: (entry) => _openEditor(entry: entry),
                               ),
                               ImportScreen(
