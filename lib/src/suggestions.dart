@@ -4,11 +4,23 @@ import 'dart:io';
 
 import 'lexicon.dart';
 
-typedef DictionarySuggestions = ({
-  List<String> translations,
-  List<String> examples,
-  String title,
-});
+typedef DictionaryMeaning = ({String partOfSpeech, String definition});
+
+class DictionarySuggestions {
+  const DictionarySuggestions({
+    required this.title,
+    this.translations = const [],
+    this.examples = const [],
+    this.meanings = const [],
+    this.lemma,
+  });
+
+  final String title;
+  final List<String> translations;
+  final List<String> examples;
+  final List<DictionaryMeaning> meanings;
+  final String? lemma;
+}
 
 class SuggestionSources {
   final _http = HttpClient()..connectionTimeout = const Duration(seconds: 4);
@@ -135,6 +147,9 @@ DictionarySuggestions parseDictionary(String raw, String term) {
   final primary = <String>{};
   final bySense = <(int, String), Set<String>>{};
   final examples = <String>{};
+  final meanings = <DictionaryMeaning>{};
+  final lemmas = <String>{};
+  var hasIndependentSense = false;
   var entryIndex = 0;
   for (final row in const LineSplitter().convert(raw)) {
     if (row.trim().isEmpty) continue;
@@ -169,6 +184,25 @@ DictionarySuggestions parseDictionary(String raw, String term) {
       }
     }
     for (final sense in senses) {
+      final tags = sense['tags'] as List<dynamic>? ?? [];
+      final forms = sense['form_of'] as List<dynamic>? ?? [];
+      if (!tags.contains('no-gloss')) {
+        for (final form in forms) {
+          final base = normalizeTerm(form['word'] as String);
+          if (isEnglishTerm(base) && base.toLowerCase() != term.toLowerCase()) {
+            lemmas.add(base);
+          }
+        }
+        hasIndependentSense |= forms.isEmpty;
+        final glosses = sense['glosses'] as List<dynamic>? ?? [];
+        final definition = glosses.whereType<String>().lastOrNull?.trim();
+        if (definition != null && definition.isNotEmpty) {
+          meanings.add((
+            partOfSpeech: entry['pos'] as String? ?? '',
+            definition: definition,
+          ));
+        }
+      }
       final usages = sense['examples'] as List<dynamic>? ?? [];
       for (final usage in usages) {
         final value = usage['text'] as String?;
@@ -186,10 +220,12 @@ DictionarySuggestions parseDictionary(String raw, String term) {
     ...bySense.values.map((values) => values.first),
     ...bySense.values.expand((values) => values),
   };
-  return (
+  return DictionarySuggestions(
     translations: ranked.take(5).toList(),
     examples: examples.take(4).toList(),
     title: title.firstOrNull ?? term,
+    meanings: meanings.toList(),
+    lemma: !hasIndependentSense && lemmas.length == 1 ? lemmas.single : null,
   );
 }
 

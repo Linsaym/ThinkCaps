@@ -3,6 +3,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:thinkcaps/main.dart';
+import 'package:thinkcaps/src/card_editor_screen.dart';
 
 void main() {
   testWidgets('screenshot text and saved context are lowercase', (
@@ -41,9 +42,15 @@ void main() {
         .single;
     await tester.tapAt(paragraph.localToGlobal(compass.toRect().center));
     await tester.pumpAndSettle();
+    expect(find.byType(CardEditorScreen), findsOneWidget);
+    expect(
+      tester.widget<TextField>(find.byType(TextField).last).controller!.text,
+      sentence,
+    );
     await tester.tap(find.text('Сохранить'));
     await tester.pumpAndSettle();
 
+    expect(find.byType(CardEditorScreen), findsNothing);
     expect(saved?['english'], 'compass');
     expect(saved?['context'], sentence);
     await tester.pumpWidget(const SizedBox());

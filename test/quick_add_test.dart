@@ -4,12 +4,30 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:thinkcaps/src/card_editor_screen.dart';
 import 'package:thinkcaps/src/design.dart';
+import 'package:thinkcaps/src/lexicon.dart';
 import 'package:thinkcaps/src/platform.dart';
-import 'package:thinkcaps/src/quick_add_screen.dart';
 import 'package:thinkcaps/src/suggestions.dart';
 
 void main() {
+  testWidgets('English field requests standard system keyboard behavior', (
+    tester,
+  ) async {
+    mockPlatform();
+    await tester.pumpWidget(_screen(_Suggestions()));
+    await tester.pump();
+
+    final field = tester.widget<TextField>(find.byType(TextField).first);
+    final client = tester.testTextInput.log.lastWhere(
+      (call) => call.method == 'TextInput.setClient',
+    );
+    final configuration = (client.arguments as List<Object?>)[1] as Map;
+    expect(configuration['enableSuggestions'], isTrue);
+    expect(configuration['autocorrect'], isTrue);
+    expect(field.selectionEnabled, isTrue);
+  });
+
   test(
     'dictionary prioritizes distinct senses and removes duplicate spellings',
     () {
@@ -44,6 +62,50 @@ void main() {
     },
   );
 
+  testWidgets('suggestions and definitions do not move the form controls', (
+    tester,
+  ) async {
+    mockPlatform();
+    final sources = _Suggestions();
+    await tester.pumpWidget(_screen(sources));
+    await tester.pump();
+    final fields = find.byType(TextField);
+    final save = find.text('Сохранить');
+    List<Rect> layout() => [
+      for (var index = 0; index < 3; index++) tester.getRect(fields.at(index)),
+      tester.getRect(save),
+    ];
+    final initial = layout();
+    await tester.enterText(fields.first, 'edibles');
+    await tester.pump(const Duration(milliseconds: 320));
+    expect(layout(), initial);
+
+    sources.translations['edibles']!.complete(
+      parseDictionary('''
+{"word":"edibles","pos":"noun","lang_code":"en","senses":[{"glosses":["plural of edible"],"form_of":[{"word":"edible"}]}]}
+''', 'edibles'),
+    );
+    sources.usages['edibles']!.complete(['They brought edibles to the party.']);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(layout(), initial);
+
+    sources.translations['edible']!.complete(
+      const DictionarySuggestions(
+        title: 'edible',
+        meanings: [
+          (partOfSpeech: 'adj', definition: 'Suitable for consumption.'),
+          (partOfSpeech: 'noun', definition: 'Anything that is edible.'),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(layout(), initial);
+    expect(find.text('Основная форма «edible»'), findsOneWidget);
+    expect(find.text('Anything that is edible.'), findsOneWidget);
+    expect(find.text('Suitable for consumption.'), findsNothing);
+  });
+
   testWidgets('saves a word, a phrasal verb and an idiom without leaving', (
     tester,
   ) async {
@@ -51,7 +113,7 @@ void main() {
     final saved = mockPlatform();
     await tester.pumpWidget(_screen(sources));
     await tester.pump();
-    final field = find.byType(TextField);
+    final field = find.byType(TextField).first;
     final save = find.text('Сохранить');
     final focus = tester.widget<TextField>(field).focusNode!;
     expect(focus.hasFocus, isTrue);
@@ -59,11 +121,12 @@ void main() {
     for (final term in ['curiosity', 'give up', 'break the ice']) {
       await tester.enterText(field, term);
       await tester.pump(const Duration(milliseconds: 320));
-      sources.translations[term]!.complete((
-        title: term,
-        translations: ['основной', 'другой'],
-        examples: <String>[],
-      ));
+      sources.translations[term]!.complete(
+        DictionarySuggestions(
+          title: term,
+          translations: ['основной', 'другой'],
+        ),
+      );
       await tester.pump();
       expect(selectedTranslations(tester), ['основной']);
       const example = 'They wanted to give up early.';
@@ -79,9 +142,9 @@ void main() {
         const sentence = 'Someone has to break the ice.';
         sources.usages[term]!.complete([sentence]);
         await tester.pump();
-        await tester.tap(find.text(sentence));
+        await tester.tap(find.widgetWithText(ChoiceChip, sentence));
         await tester.pump();
-        await tester.tap(find.text(sentence));
+        await tester.tap(find.widgetWithText(ChoiceChip, sentence));
         await tester.pump();
       }
       await tester.tap(save);
@@ -106,31 +169,55 @@ void main() {
     await tester.pumpWidget(_screen(sources));
     await tester.pump();
     final field = find.byType(TextField);
-    await tester.enterText(field, 'curiosity');
+    await tester.enterText(field.first, 'curiosity');
     await tester.pump(const Duration(milliseconds: 320));
-    await tester.enterText(field, 'give up');
+    await tester.enterText(field.first, 'give up');
     await tester.pump(const Duration(milliseconds: 320));
-    sources.translations['curiosity']!.complete((
-      title: 'curiosity',
-      translations: ['любопытство'],
-      examples: <String>[],
-    ));
+    sources.translations['curiosity']!.complete(
+      const DictionarySuggestions(
+        title: 'curiosity',
+        translations: ['любопытство'],
+      ),
+    );
     sources.translations['give up']!.completeError(StateError('Unavailable'));
     sources.usages['give up']!.completeError(StateError('Unavailable'));
     await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
     expect(find.text('любопытство'), findsNothing);
-    expect(find.text('Не удалось загрузить перевод'), findsOneWidget);
+    expect(find.text('Перевод не загрузился'), findsOneWidget);
     expect(find.text('Примеры не загрузились'), findsOneWidget);
-    await tester.tap(find.text('Вручную'));
-    await tester.pump();
-    await tester.enterText(field.last, 'сдаваться');
+    await tester.enterText(field.at(1), 'сдаваться');
     await tester.pump();
     await tester.tap(find.text('Сохранить'));
     await tester.pump();
     expect(find.text('Такая карточка уже в словаре'), findsOneWidget);
     expect(tester.widget<TextField>(field.first).controller!.text, 'give up');
-    expect(tester.widget<TextField>(field.last).controller!.text, 'сдаваться');
+    expect(tester.widget<TextField>(field.at(1)).controller!.text, 'сдаваться');
     expect(saved.single['automatic'], isFalse);
+  });
+
+  testWidgets('editing retains the entry ID, translation credit and context', (
+    tester,
+  ) async {
+    final saved = mockPlatform();
+    final state = ReviewState(due: DateTime(2026));
+    final entry = Entry(
+      id: 42,
+      english: 'compass',
+      russian: 'компас',
+      context: 'This compass still works.',
+      automatic: true,
+      forward: state,
+      reverse: state,
+    );
+    await tester.pumpWidget(_screen(_Suggestions(), entry: entry));
+    await tester.pump();
+    expect(find.byType(TranslationCredit), findsOneWidget);
+    await tester.tap(find.text('Сохранить'));
+    await tester.pumpAndSettle();
+    expect(saved.single, containsPair('id', 42));
+    expect(saved.single, containsPair('automatic', true));
+    expect(saved.single, containsPair('context', 'This compass still works.'));
   });
 }
 
@@ -140,9 +227,13 @@ List<String> selectedTranslations(WidgetTester tester) => tester
     .map((chip) => (chip.label as Text).data!)
     .toList();
 
-Widget _screen(_Suggestions sources) => MaterialApp(
+Widget _screen(_Suggestions sources, {Entry? entry}) => MaterialApp(
   theme: appTheme(),
-  home: QuickAddScreen(platform: ThinkCapsPlatform(), sources: sources),
+  home: CardEditorScreen(
+    platform: ThinkCapsPlatform(),
+    sources: sources,
+    entry: entry,
+  ),
 );
 
 List<Map<Object?, Object?>> mockPlatform({bool duplicate = false}) {
