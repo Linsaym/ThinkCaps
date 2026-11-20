@@ -357,18 +357,93 @@ class _CardEditorScreenState extends State<CardEditorScreen> {
     );
   }
 
+  Future<void> _chooseSuggestion({
+    required String title,
+    required List<String> options,
+    required String? selected,
+    required ValueChanged<String> onSelected,
+  }) async {
+    final version = _lookupVersion;
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      useSafeArea: true,
+      constraints: const BoxConstraints(maxWidth: 520),
+      builder: (_) =>
+          _SuggestionSheet(title: title, options: options, selected: selected),
+    );
+    if (choice != null && _current(version) && !_saving) onSelected(choice);
+  }
+
   Widget _translationSlot() {
     final options = _googleTranslation == null
         ? _dictionary?.translations ?? <String>[]
         : [_googleTranslation!];
-    final showOptions =
-        options.isNotEmpty && (_googleTranslation == null || !_automatic);
+    final selected = _russian.text.trim();
+    final alternative = options
+        .where((option) => option != selected)
+        .firstOrNull;
     final Widget content;
-    if (showOptions) {
-      content = _Options(
-        values: options,
-        selected: _russian.text.trim(),
-        onSelected: _saving ? null : _selectTranslation,
+    if (alternative != null) {
+      content = LayoutBuilder(
+        key: const ValueKey('translations'),
+        builder: (context, size) {
+          const optionStyle = TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+          );
+          const allLabel = 'Все варианты';
+          final allWidth = options.length > 1
+              ? _labelWidth(
+                      context,
+                      allLabel,
+                      Theme.of(context).textTheme.labelLarge!,
+                    ) +
+                    56
+              : 0;
+          final showShortcut =
+              _labelWidth(context, alternative, optionStyle) + 22 + allWidth <=
+              size.maxWidth;
+          return Row(
+            children: [
+              if (showShortcut)
+                OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    backgroundColor: ink,
+                    minimumSize: const Size(0, 34),
+                    padding: const EdgeInsets.symmetric(horizontal: 11),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(11),
+                    ),
+                    textStyle: optionStyle,
+                  ),
+                  onPressed: _saving
+                      ? null
+                      : () => _selectTranslation(alternative),
+                  child: Text(alternative),
+                ),
+              if (options.length > 1 || !showShortcut)
+                Flexible(
+                  child: TextButton.icon(
+                    onPressed: _saving
+                        ? null
+                        : () => _chooseSuggestion(
+                            title: 'Варианты перевода',
+                            options: options,
+                            selected: selected,
+                            onSelected: _selectTranslation,
+                          ),
+                    iconAlignment: IconAlignment.end,
+                    icon: const Icon(Icons.expand_more_rounded, size: 17),
+                    label: Text(
+                      options.length > 1 ? allLabel : 'Вариант перевода',
+                    ),
+                  ),
+                ),
+            ],
+          );
+        },
       );
     } else if (_loadingTranslation) {
       content = _LookupStatus('Ищем перевод…', loading: true);
@@ -388,40 +463,199 @@ class _CardEditorScreenState extends State<CardEditorScreen> {
     } else {
       content = const SizedBox.shrink();
     }
-    return _SuggestionSlot(
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Expanded(child: _FadeContent(child: content)),
-          if (_automatic || _googleTranslation != null)
-            const TranslationCredit(),
-        ],
-      ),
+    return Row(
+      children: [
+        Expanded(
+          child: SizedBox(
+            height: 10 + MediaQuery.textScalerOf(context).scale(38),
+            child: _FadeContent(child: content),
+          ),
+        ),
+        if (_automatic || _googleTranslation != null) const TranslationCredit(),
+      ],
     );
   }
 
-  Widget _exampleSlot() {
-    final Widget content;
+  Widget _wordPanel() => Panel(
+    radius: 22,
+    padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Text('Английский', style: _fieldLabel),
+        Semantics(
+          label: 'Слово или фраза',
+          child: TextField(
+            controller: _english,
+            focusNode: _englishFocus,
+            autofocus: _repeat,
+            textInputAction: TextInputAction.done,
+            inputFormatters: [LengthLimitingTextInputFormatter(80)],
+            onChanged: _termChanged,
+            onEditingComplete: _submitTerm,
+            style: const TextStyle(
+              fontSize: 26,
+              height: 1.25,
+              letterSpacing: -.7,
+              fontWeight: FontWeight.w800,
+            ),
+            decoration: _fieldDecoration('Слово или фраза').copyWith(
+              suffixIcon: ValueListenableBuilder<TextEditingValue>(
+                valueListenable: _english,
+                builder: (_, value, _) => Visibility(
+                  visible: value.text.isNotEmpty,
+                  maintainSize: true,
+                  maintainAnimation: true,
+                  maintainState: true,
+                  child: IconButton(
+                    tooltip: 'Очистить поле',
+                    onPressed: () {
+                      _english.clear();
+                      _termChanged('');
+                      _englishFocus.requestFocus();
+                    },
+                    icon: const Icon(
+                      Icons.close_rounded,
+                      size: 20,
+                      color: muted,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        ListenableBuilder(
+          listenable: _englishFocus,
+          builder: (_, _) => Divider(
+            height: 18,
+            thickness: 1,
+            color: _englishFocus.hasFocus ? Colors.transparent : line,
+          ),
+        ),
+        const Text('Перевод', style: _fieldLabel),
+        Semantics(
+          label: 'Перевод',
+          child: TextField(
+            controller: _russian,
+            inputFormatters: [LengthLimitingTextInputFormatter(200)],
+            textInputAction: TextInputAction.done,
+            onEditingComplete: _save,
+            onChanged: (_) => setState(() {
+              _draftChanged();
+              _manualTranslation = true;
+              _automatic = false;
+            }),
+            style: const TextStyle(
+              fontSize: 19,
+              height: 1.4,
+              fontWeight: FontWeight.w700,
+            ),
+            decoration: _fieldDecoration('Введите перевод'),
+          ),
+        ),
+        _translationSlot(),
+      ],
+    ),
+  );
+
+  Widget _exampleAction() {
     if (_examples.isNotEmpty) {
-      content = _Options(
-        values: _examples,
-        selected: _context.text.trim(),
-        onSelected: _saving ? null : _selectExample,
+      return Align(
+        key: const ValueKey('examples'),
+        alignment: Alignment.centerRight,
+        child: TextButton.icon(
+          onPressed: _saving
+              ? null
+              : () => _chooseSuggestion(
+                  title: 'Примеры употребления',
+                  options: _examples,
+                  selected: _pickedExample,
+                  onSelected: _selectExample,
+                ),
+          iconAlignment: IconAlignment.end,
+          icon: const Icon(Icons.expand_more_rounded, size: 17),
+          label: const Text('Примеры'),
+        ),
       );
-    } else if (_loadingExamples || _loadingDictionary) {
-      content = _LookupStatus('Ищем примеры…', loading: true);
-    } else if (_examplesFailed) {
-      content = _LookupStatus(
-        'Примеры не загрузились',
-        retry: () => _loadExamples(_term, _lookupVersion),
-      );
-    } else if (_lookupStarted) {
-      content = _LookupStatus('Примеры не найдены');
-    } else {
-      content = const SizedBox.shrink();
     }
-    return _SuggestionSlot(child: _FadeContent(child: content));
+    if (_loadingExamples || _loadingDictionary) {
+      return const Align(
+        key: ValueKey('examples-loading'),
+        alignment: Alignment.centerRight,
+        child: SizedBox.square(
+          dimension: 13,
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            semanticsLabel: 'Ищем примеры',
+          ),
+        ),
+      );
+    }
+    if (_examplesFailed) {
+      return Align(
+        key: const ValueKey('examples-retry'),
+        alignment: Alignment.centerRight,
+        child: Tooltip(
+          message: 'Примеры не загрузились',
+          child: TextButton.icon(
+            onPressed: () => _loadExamples(_term, _lookupVersion),
+            icon: const Icon(Icons.refresh_rounded, size: 17),
+            label: const Text('Повторить'),
+          ),
+        ),
+      );
+    }
+    if (_lookupStarted) {
+      return const Align(
+        key: ValueKey('examples-empty'),
+        alignment: Alignment.centerRight,
+        child: Text('Нет примеров', style: _fieldLabel),
+      );
+    }
+    return const SizedBox.shrink();
   }
+
+  Widget _contextPanel() => Panel(
+    color: ink,
+    radius: 20,
+    padding: const EdgeInsets.fromLTRB(16, 2, 16, 12),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(
+          height: 16 + MediaQuery.textScalerOf(context).scale(32),
+          child: Row(
+            children: [
+              const Text('Контекст', style: _fieldLabel),
+              const SizedBox(width: 8),
+              Expanded(child: _FadeContent(child: _exampleAction())),
+            ],
+          ),
+        ),
+        Semantics(
+          label: 'Пример или контекст',
+          child: TextField(
+            controller: _context,
+            minLines: 2,
+            maxLines: 2,
+            keyboardType: TextInputType.multiline,
+            inputFormatters: [LengthLimitingTextInputFormatter(1000)],
+            onChanged: (_) => setState(() {
+              _draftChanged();
+              _pickedExample = null;
+            }),
+            style: const TextStyle(
+              fontSize: 15,
+              height: 1.5,
+              fontWeight: FontWeight.w500,
+            ),
+            decoration: _fieldDecoration('Предложение по желанию'),
+          ),
+        ),
+      ],
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -432,13 +666,18 @@ class _CardEditorScreenState extends State<CardEditorScreen> {
       appBar: AppBar(
         backgroundColor: ink,
         scrolledUnderElevation: 0,
-        title: Text(
-          _repeat
-              ? 'Быстрое добавление'
-              : widget.entry == null
-              ? 'Новая карточка'
-              : 'Карточка',
-          style: subheading,
+        title: LayoutBuilder(
+          builder: (context, size) {
+            final title = _repeat
+                ? 'Быстрое добавление'
+                : widget.entry == null
+                ? 'Новая карточка'
+                : 'Карточка';
+            final compact =
+                _repeat &&
+                _labelWidth(context, title, subheading) > size.maxWidth;
+            return Text(compact ? 'Добавление' : title, style: subheading);
+          },
         ),
         actions: [
           if (widget.entry != null)
@@ -464,77 +703,16 @@ class _CardEditorScreenState extends State<CardEditorScreen> {
                 Expanded(
                   child: ListView(
                     controller: _scroll,
-                    padding: const EdgeInsets.fromLTRB(20, 6, 20, 16),
+                    padding: const EdgeInsets.fromLTRB(20, 10, 20, 22),
                     children: [
-                      TextField(
-                        controller: _english,
-                        focusNode: _englishFocus,
-                        autofocus: _repeat,
-                        textInputAction: TextInputAction.done,
-                        inputFormatters: [LengthLimitingTextInputFormatter(80)],
-                        onChanged: _termChanged,
-                        onEditingComplete: _submitTerm,
-                        decoration: InputDecoration(
-                          labelText: 'Слово или фраза',
-                          hintText: 'Например, give up',
-                          suffixIcon: ValueListenableBuilder<TextEditingValue>(
-                            valueListenable: _english,
-                            builder: (_, value, _) => IconButton(
-                              tooltip: 'Очистить поле',
-                              onPressed: value.text.isEmpty
-                                  ? null
-                                  : () {
-                                      _english.clear();
-                                      _termChanged('');
-                                      _englishFocus.requestFocus();
-                                    },
-                              icon: Icon(
-                                Icons.close_rounded,
-                                color: value.text.isEmpty
-                                    ? Colors.transparent
-                                    : muted,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: _russian,
-                        inputFormatters: [
-                          LengthLimitingTextInputFormatter(200),
-                        ],
-                        textInputAction: TextInputAction.done,
-                        onEditingComplete: _save,
-                        onChanged: (_) => setState(() {
-                          _draftChanged();
-                          _manualTranslation = true;
-                          _automatic = false;
-                        }),
-                        decoration: const InputDecoration(labelText: 'Перевод'),
-                      ),
-                      _translationSlot(),
-                      TextField(
-                        controller: _context,
-                        minLines: 2,
-                        maxLines: 2,
-                        keyboardType: TextInputType.multiline,
-                        inputFormatters: [
-                          LengthLimitingTextInputFormatter(1000),
-                        ],
-                        onChanged: (_) => setState(() {
-                          _draftChanged();
-                          _pickedExample = null;
-                        }),
-                        decoration: const InputDecoration(
-                          labelText: 'Пример или контекст',
-                        ),
-                      ),
-                      _exampleSlot(),
+                      _wordPanel(),
+                      const SizedBox(height: 18),
+                      _contextPanel(),
                       AnimatedSize(
-                        duration: const Duration(milliseconds: 180),
+                        duration: _editorMotion(context),
                         alignment: Alignment.topCenter,
                         child: _MeaningPanel(
+                          key: ValueKey(_term),
                           dictionary: _dictionary,
                           lemma: _lemma,
                         ),
@@ -542,31 +720,38 @@ class _CardEditorScreenState extends State<CardEditorScreen> {
                     ],
                   ),
                 ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      SizedBox(
-                        height: MediaQuery.textScalerOf(context).scale(32),
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: Semantics(
-                            liveRegion: true,
-                            child: Text(
-                              status ?? '',
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: body.copyWith(fontSize: 12, height: 1.25),
-                            ),
-                          ),
+                DecoratedBox(
+                  decoration: const BoxDecoration(
+                    color: ink,
+                    border: Border(top: BorderSide(color: line)),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        AnimatedSize(
+                          duration: _editorMotion(context),
+                          alignment: Alignment.bottomCenter,
+                          child: status == null
+                              ? const SizedBox.shrink()
+                              : Padding(
+                                  padding: const EdgeInsets.only(bottom: 8),
+                                  child: Semantics(
+                                    liveRegion: true,
+                                    child: Text(
+                                      status,
+                                      style: body.copyWith(fontSize: 13),
+                                    ),
+                                  ),
+                                ),
                         ),
-                      ),
-                      FilledButton(
-                        onPressed: _canSave ? _save : null,
-                        child: Text(_saving ? 'Сохраняем…' : 'Сохранить'),
-                      ),
-                    ],
+                        FilledButton(
+                          onPressed: _canSave ? _save : null,
+                          child: Text(_saving ? 'Сохраняем…' : 'Сохранить'),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ],
@@ -578,15 +763,43 @@ class _CardEditorScreenState extends State<CardEditorScreen> {
   }
 }
 
-class _SuggestionSlot extends StatelessWidget {
-  const _SuggestionSlot({required this.child});
-  final Widget child;
+const _fieldLabel = TextStyle(
+  color: muted,
+  fontSize: 13,
+  fontWeight: FontWeight.w700,
+  height: 1.35,
+);
 
-  @override
-  Widget build(BuildContext context) => SizedBox(
-    height: 12 + MediaQuery.textScalerOf(context).scale(36),
-    child: child,
-  );
+InputDecoration _fieldDecoration(String hint) => InputDecoration(
+  hintText: hint,
+  isDense: true,
+  filled: false,
+  contentPadding: const EdgeInsets.symmetric(vertical: 7),
+  border: InputBorder.none,
+  enabledBorder: InputBorder.none,
+  focusedBorder: const UnderlineInputBorder(
+    borderSide: BorderSide(color: mint),
+  ),
+);
+
+Duration _editorMotion(BuildContext context) =>
+    MediaQuery.disableAnimationsOf(context)
+    ? Duration.zero
+    : const Duration(milliseconds: 180);
+
+double _labelWidth(BuildContext context, String value, TextStyle style) {
+  final painter = TextPainter(
+    text: TextSpan(
+      text: value,
+      style: DefaultTextStyle.of(context).style.merge(style),
+    ),
+    textScaler: MediaQuery.textScalerOf(context),
+    textDirection: Directionality.of(context),
+    maxLines: 1,
+  )..layout();
+  final width = painter.width.ceilToDouble();
+  painter.dispose();
+  return width;
 }
 
 class _FadeContent extends StatelessWidget {
@@ -595,7 +808,7 @@ class _FadeContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => AnimatedSwitcher(
-    duration: const Duration(milliseconds: 160),
+    duration: _editorMotion(context),
     layoutBuilder: (current, previous) => Stack(
       fit: StackFit.expand,
       alignment: Alignment.centerLeft,
@@ -612,42 +825,66 @@ class _FadeContent extends StatelessWidget {
   );
 }
 
-class _Options extends StatelessWidget {
-  const _Options({
-    required this.values,
+class _SuggestionSheet extends StatelessWidget {
+  const _SuggestionSheet({
+    required this.title,
+    required this.options,
     required this.selected,
-    required this.onSelected,
   });
-  final List<String> values;
-  final String selected;
-  final ValueChanged<String>? onSelected;
+
+  final String title;
+  final List<String> options;
+  final String? selected;
 
   @override
-  Widget build(BuildContext context) => LayoutBuilder(
-    builder: (context, constraints) => ListView.separated(
-      scrollDirection: Axis.horizontal,
-      itemCount: values.length,
-      separatorBuilder: (_, _) => const SizedBox(width: 8),
-      itemBuilder: (context, index) {
-        final option = values[index];
-        final active = selected == option;
-        return Center(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: constraints.maxWidth * .86),
-            child: ChoiceChip(
-              label: Text(option, maxLines: 2, overflow: TextOverflow.ellipsis),
-              tooltip: option,
-              selected: active,
-              selectedColor: mint,
-              checkmarkColor: ink,
-              labelStyle: TextStyle(color: active ? ink : text, fontSize: 13),
-              onSelected: onSelected == null
-                  ? null
-                  : (_) => onSelected!(option),
+  Widget build(BuildContext context) => SafeArea(
+    top: false,
+    child: ConstrainedBox(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.sizeOf(context).height * .62,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 0, 24, 12),
+            child: Text(title, style: subheading),
+          ),
+          Flexible(
+            child: ListView.separated(
+              shrinkWrap: true,
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              itemCount: options.length,
+              separatorBuilder: (_, _) => const Divider(
+                height: 1,
+                indent: 12,
+                endIndent: 12,
+                color: line,
+              ),
+              itemBuilder: (context, index) {
+                final option = options[index];
+                final active = option == selected;
+                return ListTile(
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  selected: active,
+                  selectedTileColor: mintSurface,
+                  title: Text(
+                    option,
+                    style: body.copyWith(color: active ? mint : text),
+                  ),
+                  trailing: active
+                      ? const Icon(Icons.check_rounded, color: mint)
+                      : null,
+                  onTap: () => Navigator.pop(context, option),
+                );
+              },
             ),
           ),
-        );
-      },
+        ],
+      ),
     ),
   );
 }
@@ -683,10 +920,21 @@ class _LookupStatus extends StatelessWidget {
   );
 }
 
-class _MeaningPanel extends StatelessWidget {
-  const _MeaningPanel({required this.dictionary, required this.lemma});
+class _MeaningPanel extends StatefulWidget {
+  const _MeaningPanel({
+    super.key,
+    required this.dictionary,
+    required this.lemma,
+  });
   final DictionarySuggestions? dictionary;
   final DictionarySuggestions? lemma;
+
+  @override
+  State<_MeaningPanel> createState() => _MeaningPanelState();
+}
+
+class _MeaningPanelState extends State<_MeaningPanel> {
+  bool _expanded = false;
 
   String _partOfSpeech(String code) => switch (code) {
     'noun' => 'Существительное',
@@ -700,8 +948,9 @@ class _MeaningPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final entry = dictionary;
+    final entry = widget.dictionary;
     if (entry == null) return const SizedBox.shrink();
+    final lemma = widget.lemma;
     final parts = entry.meanings.map((meaning) => meaning.partOfSpeech).toSet();
     final baseMeanings = lemma?.meanings ?? [];
     final matching = baseMeanings.where(
@@ -713,22 +962,25 @@ class _MeaningPanel extends StatelessWidget {
     ].take(4).toList();
     if (meanings.isEmpty) return const SizedBox.shrink();
     return Padding(
-      padding: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.only(top: 24),
       child: Panel(
-        padding: const EdgeInsets.all(16),
+        color: mintSurface,
+        border: mint.withValues(alpha: .16),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
               'Значение · «${entry.title}»',
-              style: subheading.copyWith(fontSize: 16),
+              style: subheading.copyWith(fontSize: 17, color: mint),
             ),
             if (lemma != null)
               Text(
-                'Основная форма «${lemma!.title}»',
+                'Основная форма «${lemma.title}»',
                 style: body.copyWith(fontSize: 13),
               ),
-            for (final (index, meaning) in meanings.indexed) ...[
+            for (final (index, meaning)
+                in (_expanded ? meanings : meanings.take(2)).indexed) ...[
               const SizedBox(height: 10),
               if (_partOfSpeech(meaning.partOfSpeech).isNotEmpty &&
                   (index == 0 ||
@@ -739,8 +991,29 @@ class _MeaningPanel extends StatelessWidget {
                 ),
               Text(meaning.definition, style: body.copyWith(color: text)),
             ],
-            const SizedBox(height: 10),
-            Text('Английский Викисловарь', style: body.copyWith(fontSize: 12)),
+            const SizedBox(height: 8),
+            Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Text(
+                  'Английский Викисловарь',
+                  style: body.copyWith(fontSize: 12),
+                ),
+                if (meanings.length > 2)
+                  TextButton.icon(
+                    onPressed: () => setState(() => _expanded = !_expanded),
+                    iconAlignment: IconAlignment.end,
+                    icon: Icon(
+                      _expanded
+                          ? Icons.expand_less_rounded
+                          : Icons.expand_more_rounded,
+                      size: 17,
+                    ),
+                    label: Text(_expanded ? 'Свернуть' : 'Все значения'),
+                  ),
+              ],
+            ),
           ],
         ),
       ),

@@ -114,6 +114,7 @@ void main() {
     await tester.pumpWidget(_screen(sources));
     await tester.pump();
     final field = find.byType(TextField).first;
+    final translation = find.byType(TextField).at(1);
     final save = find.text('Сохранить');
     final focus = tester.widget<TextField>(field).focusNode!;
     expect(focus.hasFocus, isTrue);
@@ -124,35 +125,58 @@ void main() {
       sources.translations[term]!.complete(
         DictionarySuggestions(
           title: term,
-          translations: ['основной', 'другой'],
+          translations: ['основной', 'другой', 'из списка'],
         ),
       );
       await tester.pump();
-      expect(selectedTranslations(tester), ['основной']);
+      expect(
+        tester.widget<TextField>(translation).controller!.text,
+        'основной',
+      );
       const example = 'They wanted to give up early.';
       if (term == 'give up') {
         sources.usages[term]!.complete([example, 'Never give up on a dream.']);
         await tester.pump();
         await tester.tap(find.text('другой'));
         await tester.pump();
-        expect(selectedTranslations(tester), ['другой']);
-        await tester.tap(find.text(example));
-        await tester.pump();
+        expect(
+          tester.widget<TextField>(translation).controller!.text,
+          'другой',
+        );
+        await tester.tap(find.text('Все варианты'));
+        await tester.pumpAndSettle();
+        expect(
+          tester
+              .widget<ListTile>(find.widgetWithText(ListTile, 'другой'))
+              .selected,
+          isTrue,
+        );
+        await tester.tap(find.widgetWithText(ListTile, 'из списка'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Примеры'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(ListTile, example));
+        await tester.pumpAndSettle();
       } else if (term == 'break the ice') {
         const sentence = 'Someone has to break the ice.';
         sources.usages[term]!.complete([sentence]);
         await tester.pump();
-        await tester.tap(find.widgetWithText(ChoiceChip, sentence));
-        await tester.pump();
-        await tester.tap(find.widgetWithText(ChoiceChip, sentence));
-        await tester.pump();
+        for (var tap = 0; tap < 2; tap++) {
+          await tester.tap(find.text('Примеры'));
+          await tester.pumpAndSettle();
+          await tester.tap(find.widgetWithText(ListTile, sentence));
+          await tester.pumpAndSettle();
+        }
       }
       await tester.tap(save);
       await tester.pump();
       expect(focus.hasFocus, isTrue);
       expect(tester.widget<TextField>(field).controller!.text, isEmpty);
       expect(saved.last['english'], term);
-      expect(saved.last['russian'], term == 'give up' ? 'другой' : 'основной');
+      expect(
+        saved.last['russian'],
+        term == 'give up' ? 'из списка' : 'основной',
+      );
       expect(saved.last['context'], term == 'give up' ? example : '');
     }
     sources.usages['curiosity']!.complete(['Curiosity brought him back here.']);
@@ -185,7 +209,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 200));
     expect(find.text('любопытство'), findsNothing);
     expect(find.text('Перевод не загрузился'), findsOneWidget);
-    expect(find.text('Примеры не загрузились'), findsOneWidget);
+    expect(find.byTooltip('Примеры не загрузились'), findsOneWidget);
     await tester.enterText(field.at(1), 'сдаваться');
     await tester.pump();
     await tester.tap(find.text('Сохранить'));
@@ -219,22 +243,56 @@ void main() {
     expect(saved.single, containsPair('automatic', true));
     expect(saved.single, containsPair('context', 'This compass still works.'));
   });
+
+  testWidgets(
+    'long alternatives stay readable on a narrow screen with larger text',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(343, 724);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      mockPlatform();
+      final sources = _Suggestions();
+      await tester.pumpWidget(
+        _screen(sources, textScaler: const TextScaler.linear(1.25)),
+      );
+      await tester.pump();
+      expect(find.text('Добавление'), findsOneWidget);
+
+      await tester.enterText(find.byType(TextField).first, 'break the ice');
+      await tester.pump(const Duration(milliseconds: 320));
+      const option = 'разрядить обстановку и начать общение';
+      sources.translations['break the ice']!.complete(
+        const DictionarySuggestions(
+          title: 'break the ice',
+          translations: ['сделать первый шаг', option],
+        ),
+      );
+      sources.usages['break the ice']!.complete([]);
+      await tester.pumpAndSettle();
+      expect(find.text(option), findsNothing);
+      await tester.tap(find.text('Все варианты'));
+      await tester.pumpAndSettle();
+      expect(find.widgetWithText(ListTile, option), findsOneWidget);
+    },
+  );
 }
 
-List<String> selectedTranslations(WidgetTester tester) => tester
-    .widgetList<ChoiceChip>(find.byType(ChoiceChip))
-    .where((chip) => chip.selected)
-    .map((chip) => (chip.label as Text).data!)
-    .toList();
-
-Widget _screen(_Suggestions sources, {Entry? entry}) => MaterialApp(
-  theme: appTheme(),
-  home: CardEditorScreen(
-    platform: ThinkCapsPlatform(),
-    sources: sources,
-    entry: entry,
-  ),
-);
+Widget _screen(_Suggestions sources, {Entry? entry, TextScaler? textScaler}) =>
+    MaterialApp(
+      theme: appTheme(),
+      builder: (context, child) => textScaler == null
+          ? child!
+          : MediaQuery(
+              data: MediaQuery.of(context).copyWith(textScaler: textScaler),
+              child: child!,
+            ),
+      home: CardEditorScreen(
+        platform: ThinkCapsPlatform(),
+        sources: sources,
+        entry: entry,
+      ),
+    );
 
 List<Map<Object?, Object?>> mockPlatform({bool duplicate = false}) {
   const channel = MethodChannel('app.thinkcaps/bridge');

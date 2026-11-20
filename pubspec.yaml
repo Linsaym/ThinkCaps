@@ -1,7 +1,7 @@
 name: thinkcaps
 description: Карточки для изучения английского на Android.
 publish_to: 'none'
-version: 1.3.1+9
+version: 1.3.2+10
 
 environment:
   sdk: ^3.11.5
